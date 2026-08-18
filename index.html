@@ -4,23 +4,919 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Apex Chess Academy - CRM & Live Studio</title>
+  
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- React & ReactDOM -->
+  
+  <!-- React 18 & ReactDOM -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
   <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Chess.js & Chessboard.js -->
+  
+  <!-- jQuery, Chessboard.js & Chess.js -->
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
   <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-  <link rel="stylesheet" href="style.css">
+
+  <style>
+    #myBoard {
+      width: 100%;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+  </style>
 </head>
 <body class="bg-slate-950 text-slate-100 antialiased min-h-screen">
   <div id="root"></div>
 
-  <script type="text/babel" src="app.js"></script>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function App() {
+      // 1. Foydalanuvchi & Kirish holati
+      const [currentUser, setCurrentUser] = useState(null);
+      const [authMode, setAuthMode] = useState('login');
+      const [usernameInput, setUsernameInput] = useState('');
+      const [passwordInput, setPasswordInput] = useState('');
+      const [coachNameInput, setCoachNameInput] = useState('');
+      const [authError, setAuthError] = useState('');
+
+      // 2. Asosiy Menyu (LC Up Uslubida)
+      const [activeTab, setActiveTab] = useState('dashboard');
+
+      // 3. Markaz va Ma'lumotlar bazasi
+      const [students, setStudents] = useState([]);
+      const [groups, setGroups] = useState(['Boshlangʻich - Toq kunlar', 'Havaskor - Juft kunlar', 'Individual']);
+      const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
+      const [selectedGroup, setSelectedGroup] = useState('Boshlangʻich - Toq kunlar');
+      const [selectedTopicNum, setSelectedTopicNum] = useState('');
+
+      // 4. Modallar
+      const [showAddStudentModal, setShowAddStudentModal] = useState(false);
+      const [showAddGroupModal, setShowAddGroupModal] = useState(false);
+      const [newGroupName, setNewGroupName] = useState('');
+      const [deleteConfirmStudent, setDeleteConfirmStudent] = useState(null);
+
+      // 5. Jonli Dars & Ekran Yozib Olish
+      const [isRecording, setIsRecording] = useState(false);
+      const [activeStudentControl, setActiveStudentControl] = useState(null);
+      const [recordedVideos, setRecordedVideos] = useState([]);
+      const mediaRecorderRef = useRef(null);
+      const recordedChunksRef = useRef([]);
+
+      // Shaxmat doskasi
+      const boardRef = useRef(null);
+      const gameRef = useRef(null);
+
+      // O'quvchi anketasi
+      const [studentForm, setStudentForm] = useState({
+        name: '', age: '', phone: '', parentPhone: '',
+        lichessUsername: '', initialRating: '',
+        group: 'Boshlangʻich - Toq kunlar',
+        initialDiagnosis: '', monthlyFee: '300000',
+        isPaid: false
+      });
+
+      // Avvalgi seansni tekshirish
+      useEffect(() => {
+        const savedSession = localStorage.getItem('apex_active_coach');
+        if (savedSession) {
+          const coach = JSON.parse(savedSession);
+          setCurrentUser(coach);
+          loadAcademyData(coach.username);
+        }
+      }, []);
+
+      const loadAcademyData = (username) => {
+        const savedSt = localStorage.getItem(`apex_students_${username}`);
+        if (savedSt) setStudents(JSON.parse(savedSt));
+        const savedGr = localStorage.getItem(`apex_groups_${username}`);
+        if (savedGr) setGroups(JSON.parse(savedGr));
+        const savedVids = localStorage.getItem(`apex_videos_${username}`);
+        if (savedVids) setRecordedVideos(JSON.parse(savedVids));
+      };
+
+      const saveStudents = (newSt) => {
+        setStudents(newSt);
+        if (currentUser) localStorage.setItem(`apex_students_${currentUser.username}`, JSON.stringify(newSt));
+      };
+
+      const saveGroups = (newGr) => {
+        setGroups(newGr);
+        if (currentUser) localStorage.setItem(`apex_groups_${currentUser.username}`, JSON.stringify(newGr));
+      };
+
+      // Tizimga kirish mantiqi
+      const handleAuth = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        const coaches = JSON.parse(localStorage.getItem('apex_coaches') || '{}');
+
+        // Bosh Admin kirishi
+        if (usernameInput === 'bekzod' && passwordInput === 'jovliyev75828') {
+          const adminUser = { username: 'bekzod', name: 'Bekzod (Bosh Admin)', role: 'admin' };
+          localStorage.setItem('apex_active_coach', JSON.stringify(adminUser));
+          setCurrentUser(adminUser);
+          loadAcademyData('bekzod');
+          return;
+        }
+
+        if (authMode === 'register') {
+          if (coaches[usernameInput]) {
+            setAuthError('Bu username band!');
+            return;
+          }
+          const newCoach = { username: usernameInput, password: passwordInput, name: coachNameInput || usernameInput, role: 'coach' };
+          coaches[usernameInput] = newCoach;
+          localStorage.setItem('apex_coaches', JSON.stringify(coaches));
+          localStorage.setItem('apex_active_coach', JSON.stringify(newCoach));
+          setCurrentUser(newCoach);
+          loadAcademyData(newCoach.username);
+        } else {
+          const coach = coaches[usernameInput];
+          if (!coach || coach.password !== passwordInput) {
+            setAuthError('Login yoki parol xato!');
+            return;
+          }
+          localStorage.setItem('apex_active_coach', JSON.stringify(coach));
+          setCurrentUser(coach);
+          loadAcademyData(coach.username);
+        }
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('apex_active_coach');
+        setCurrentUser(null);
+      };
+
+      // O'quvchi qo'shish
+      const handleAddStudent = (e) => {
+        e.preventDefault();
+        const newSt = {
+          ...studentForm,
+          id: Date.now().toString(),
+          attendance: {}
+        };
+        const updated = [...students, newSt];
+        saveStudents(updated);
+        setShowAddStudentModal(false);
+        setStudentForm({
+          name: '', age: '', phone: '', parentPhone: '',
+          lichessUsername: '', initialRating: '',
+          group: groups[0] || 'Umumiy',
+          initialDiagnosis: '', monthlyFee: '300000',
+          isPaid: false
+        });
+      };
+
+      // Guruh qo'shish
+      const handleAddGroup = (e) => {
+        e.preventDefault();
+        if (!newGroupName.trim()) return;
+        const updated = [...groups, newGroupName.trim()];
+        saveGroups(updated);
+        setNewGroupName('');
+        setShowAddGroupModal(false);
+      };
+
+      // O'chirish (Parolsiz)
+      const confirmDelete = () => {
+        if (!deleteConfirmStudent) return;
+        const updated = students.filter(s => s.id !== deleteConfirmStudent.id);
+        saveStudents(updated);
+        setDeleteConfirmStudent(null);
+      };
+
+      // To'lov holati
+      const togglePayment = (studentId) => {
+        const updated = students.map(s => {
+          if (s.id === studentId) return { ...s, isPaid: !s.isPaid };
+          return s;
+        });
+        saveStudents(updated);
+      };
+
+      // Davomat
+      const toggleAttendance = (studentId, status) => {
+        const updated = students.map(s => {
+          if (s.id === studentId) {
+            return {
+              ...s,
+              attendance: {
+                ...s.attendance,
+                [journalDate]: {
+                  status,
+                  topic: selectedTopicNum ? `${selectedTopicNum}-mavzu` : 'Mavzu kiritilmagan'
+                }
+              }
+            };
+          }
+          return s;
+        });
+        saveStudents(updated);
+      };
+
+      // Shaxmat doskasini ishga tushirish
+      useEffect(() => {
+        if (activeTab === 'live' && window.ChessBoard && window.Chess) {
+          setTimeout(() => {
+            gameRef.current = new window.Chess();
+            boardRef.current = window.ChessBoard('myBoard', {
+              draggable: true,
+              position: 'start',
+              onDrop: (source, target) => {
+                const move = gameRef.current.move({
+                  from: source,
+                  to: target,
+                  promotion: 'q'
+                });
+                if (move === null) return 'snapback';
+              }
+            });
+          }, 100);
+        }
+      }, [activeTab]);
+
+      // Ekran yozib olish (MediaRecorder)
+      const startRecording = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { mediaSource: 'screen' },
+            audio: true
+          });
+          mediaRecorderRef.current = new MediaRecorder(stream);
+          recordedChunksRef.current = [];
+
+          mediaRecorderRef.current.ondataavailable = (e) => {
+            if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+          };
+
+          mediaRecorderRef.current.onstop = () => {
+            const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+            const videoUrl = URL.createObjectURL(blob);
+            const newVid = {
+              id: Date.now(),
+              date: new Date().toLocaleString(),
+              url: videoUrl
+            };
+            const updatedVideos = [newVid, ...recordedVideos];
+            setRecordedVideos(updatedVideos);
+            if (currentUser) {
+              localStorage.setItem(`apex_videos_${currentUser.username}`, JSON.stringify(updatedVideos));
+            }
+            setIsRecording(false);
+          };
+
+          mediaRecorderRef.current.start();
+          setIsRecording(true);
+        } catch (err) {
+          alert("Ekran yozish bekor qilindi yoki ruxsat berilmadi.");
+        }
+      };
+
+      const stopRecording = () => {
+        if (mediaRecorderRef.current) {
+          mediaRecorderRef.current.stop();
+        }
+      };
+
+      // 1. KIRISH EKRANI (Auth)
+      if (!currentUser) {
+        return (
+          <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl w-full max-w-sm space-y-4 shadow-2xl">
+              <div className="text-center space-y-1">
+                <h1 className="text-2xl font-black text-emerald-400">♟️ APEX CRM</h1>
+                <p className="text-xs text-slate-400">Apex Chess Academy boshqaruv tizimi</p>
+              </div>
+
+              {authError && (
+                <div className="bg-rose-500/20 border border-rose-500/50 p-2.5 rounded-xl text-xs text-rose-300 text-center">
+                  {authError}
+                </div>
+              )}
+
+              <form onSubmit={handleAuth} className="space-y-3">
+                {authMode === 'register' && (
+                  <input
+                    required
+                    type="text"
+                    placeholder="Ism Familiyangiz"
+                    value={coachNameInput}
+                    onChange={(e) => setCoachNameInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:border-emerald-500 outline-none"
+                  />
+                )}
+                <input
+                  required
+                  type="text"
+                  placeholder="Username"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:border-emerald-500 outline-none"
+                />
+                <input
+                  required
+                  type="password"
+                  placeholder="Parol"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:border-emerald-500 outline-none"
+                />
+                <button
+                  type="submit"
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 py-3 rounded-xl text-sm font-bold text-white transition shadow-lg shadow-emerald-500/20"
+                >
+                  {authMode === 'login' ? 'Tizimga kirish' : 'Roʻyxatdan oʻtish'}
+                </button>
+              </form>
+
+              <div className="text-center pt-2">
+                <button
+                  onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}
+                  className="text-xs text-slate-400 hover:text-emerald-400 transition"
+                >
+                  {authMode === 'login' ? 'Yangi ustozmisiz? Roʻyxatdan oʻtish' : 'Akkaunt bormi? Tizimga kirish'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Moliya ko'rsatkichlari
+      const totalIncome = students.filter(s => s.isPaid).reduce((acc, s) => acc + Number(s.monthlyFee || 0), 0);
+      const totalDebtors = students.filter(s => !s.isPaid).length;
+
+      return (
+        <div className="flex min-h-screen bg-slate-950 text-slate-100">
+          {/* Chap Yon Menyu (LC Up Uslubida) */}
+          <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between hidden md:flex">
+            <div className="p-5 space-y-6">
+              <div>
+                <h1 className="text-xl font-black text-emerald-400 flex items-center gap-2">♟️ APEX CHESS</h1>
+                <p className="text-[11px] text-slate-400 mt-1">Ustoz: {currentUser.name}</p>
+              </div>
+
+              <nav className="space-y-1 text-sm font-medium">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+                >
+                  📊 Boshqaruv
+                </button>
+                <button
+                  onClick={() => setActiveTab('students')}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'students' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+                >
+                  👥 Oʻquvchilar ({students.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('groups')}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'groups' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+                >
+                  🎓 Guruhlar ({groups.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('journal')}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'journal' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+                >
+                  📅 Dars & Davomat
+                </button>
+                <button
+                  onClick={() => setActiveTab('live')}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'live' ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-emerald-400 hover:bg-slate-800'}`}
+                >
+                  🔴 Jonli Dars Xonasi
+                </button>
+                <button
+                  onClick={() => setActiveTab('finance')}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'finance' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
+                >
+                  💰 Kassa & Moliya
+                </button>
+              </nav>
+            </div>
+
+            <div className="p-4 border-t border-slate-800">
+              <button
+                onClick={handleLogout}
+                className="w-full bg-slate-800 hover:bg-rose-600/20 hover:text-rose-400 text-slate-400 py-2.5 rounded-xl text-xs font-semibold transition"
+              >
+                Chiqish
+              </button>
+            </div>
+          </aside>
+
+          {/* Asosiy Ishchi Oyna */}
+          <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
+            <header className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center md:hidden">
+              <h1 className="font-bold text-emerald-400 text-sm">♟️ Apex CRM</h1>
+              <button onClick={handleLogout} className="text-xs text-rose-400 font-medium">Chiqish</button>
+            </header>
+
+            <main className="p-4 sm:p-6 flex-1 max-w-5xl w-full mx-auto pb-20 md:pb-6">
+              {/* BOSHQARUV PANELI */}
+              {activeTab === 'dashboard' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <p className="text-xs text-slate-400">Jami Oʻquvchilar</p>
+                      <p className="text-2xl font-black text-white mt-1">{students.length}</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <p className="text-xs text-slate-400">Guruhlar</p>
+                      <p className="text-2xl font-black text-sky-400 mt-1">{groups.length}</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <p className="text-xs text-slate-400">Oylik Tushum</p>
+                      <p className="text-xl font-black text-emerald-400 mt-1">{totalIncome.toLocaleString()} soʻm</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <p className="text-xs text-slate-400">Qarzdorlar</p>
+                      <p className="text-2xl font-black text-rose-400 mt-1">{totalDebtors} ta</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowAddStudentModal(true)}
+                      className="bg-emerald-500 hover:bg-emerald-600 px-4 py-2.5 rounded-xl font-bold text-xs text-white shadow-lg transition"
+                    >
+                      + Yangi Oʻquvchi Qoʻshish
+                    </button>
+                    <button
+                      onClick={() => setShowAddGroupModal(true)}
+                      className="bg-slate-800 hover:bg-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs text-slate-200 transition"
+                    >
+                      + Yangi Guruh Ochish
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* O'QUVCHILAR BAZASI */}
+              {activeTab === 'students' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-base font-bold text-white">Barcha Oʻquvchilar</h2>
+                    <button
+                      onClick={() => setShowAddStudentModal(true)}
+                      className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded-xl text-xs font-bold text-white transition"
+                    >
+                      + Oʻquvchi
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {students.length === 0 ? (
+                      <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center text-xs text-slate-500">
+                        Hozircha oʻquvchilar yoʻq. Yuqoridagi "+ Oʻquvchi" tugmasi orqali yangi oʻquvchi qoʻshing.
+                      </div>
+                    ) : (
+                      students.map(st => (
+                        <div key={st.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-base text-white">{st.name}</h3>
+                              <span className="text-[10px] bg-slate-800 text-sky-400 px-2 py-0.5 rounded-md">{st.group}</span>
+                              {st.isPaid ? (
+                                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-md font-bold">Toʻlangan</span>
+                              ) : (
+                                <span className="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-md font-bold">Qarz</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400">Tel: {st.phone || 'Yoʻq'} • Ota-onasi: {st.parentPhone || 'Kiritilmagan'}</p>
+                            <p className="text-xs text-slate-300">
+                              <strong className="text-emerald-400">Boshlangʻich Lichess:</strong> {st.initialRating || '0'} | <strong className="text-slate-400">Tashxis:</strong> {st.initialDiagnosis || 'Kiritilmagan'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 self-end sm:self-center">
+                            {st.lichessUsername && (
+                              <a
+                                href={`https://lichess.org/@/${st.lichessUsername}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-xl text-xs text-emerald-400 font-medium"
+                              >
+                                Lichess ↗
+                              </a>
+                            )}
+                            <button
+                              onClick={() => togglePayment(st.id)}
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition ${st.isPaid ? 'bg-slate-800 text-slate-400' : 'bg-emerald-600 text-white'}`}
+                            >
+                              {st.isPaid ? 'Qarz qilish' : 'Toʻlov qabul qilish'}
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmStudent(st)}
+                              className="bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white px-2.5 py-1.5 rounded-xl text-xs font-bold transition"
+                            >
+                              Oʻchirish
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* GURUHLAR */}
+              {activeTab === 'groups' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-base font-bold text-white">Akademiya Guruhlari</h2>
+                    <button
+                      onClick={() => setShowAddGroupModal(true)}
+                      className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded-xl text-xs font-bold text-white transition"
+                    >
+                      + Yangi Guruh
+                    </button>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {groups.map((grp, idx) => {
+                      const count = students.filter(s => s.group === grp).length;
+                      return (
+                        <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-3">
+                          <div className="flex justify-between items-center">
+                            <h3 className="font-bold text-white text-base">{grp}</h3>
+                            <span className="text-xs bg-slate-800 text-emerald-400 px-2.5 py-1 rounded-lg font-semibold">{count} ta oʻquvchi</span>
+                          </div>
+                          <div className="text-xs text-slate-400 space-y-1">
+                            {students.filter(s => s.group === grp).map(s => (
+                              <div key={s.id} className="flex justify-between border-b border-slate-800/50 py-1">
+                                <span>{s.name}</span>
+                                <span className="text-slate-500">{s.phone}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* JURNAL & DAVOMAT */}
+              {activeTab === 'journal' && (
+                <div className="space-y-4">
+                  <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl grid sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold">Dars Sanasi</label>
+                      <input
+                        type="date"
+                        value={journalDate}
+                        onChange={(e) => setJournalDate(e.target.value)}
+                        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold">Guruhni Tanlang</label>
+                      <select
+                        value={selectedGroup}
+                        onChange={(e) => setSelectedGroup(e.target.value)}
+                        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                      >
+                        {groups.map((g, i) => <option key={i} value={g}>{g}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 font-semibold">Oʻtilgan Mavzu №</label>
+                      <input
+                        type="text"
+                        placeholder="Masalan: 5"
+                        value={selectedTopicNum}
+                        onChange={(e) => setSelectedTopicNum(e.target.value)}
+                        className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {students.filter(s => s.group === selectedGroup).map(st => {
+                      const dayStatus = st.attendance?.[journalDate]?.status;
+                      return (
+                        <div key={st.id} className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl flex items-center justify-between">
+                          <div>
+                            <p className="font-bold text-sm text-white">{st.name}</p>
+                            <p className="text-xs text-slate-400">{st.attendance?.[journalDate]?.topic || 'Mavzu kiritilmagan'}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => toggleAttendance(st.id, 'present')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${dayStatus === 'present' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                            >
+                              ✓ Keldi
+                            </button>
+                            <button
+                              onClick={() => toggleAttendance(st.id, 'absent')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${dayStatus === 'absent' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                            >
+                              ✕ Kelmadi
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* JONLI DARS XONASI */}
+              {activeTab === 'live' && (
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                    <div>
+                      <h2 className="font-bold text-white text-base">🔴 Jonli Dars Xonasi</h2>
+                      <p className="text-xs text-slate-400">Interaktiv doska va ekranni yozib olish</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {!isRecording ? (
+                        <button
+                          onClick={startRecording}
+                          className="bg-rose-600 hover:bg-rose-700 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-lg transition flex items-center gap-2"
+                        >
+                          <span className="w-2.5 h-2.5 bg-white rounded-full animate-pulse"></span> Ekranni Yozib Olish
+                        </button>
+                      ) : (
+                        <button
+                          onClick={stopRecording}
+                          className="bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-lg transition"
+                        >
+                          ⏹️ Yozishni Toʻxtatish
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2 bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col items-center">
+                      <div id="myBoard"></div>
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          onClick={() => { if (gameRef.current && boardRef.current) { gameRef.current.reset(); boardRef.current.start(); } }}
+                          className="bg-slate-800 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300"
+                        >
+                          Boshlangʻich holat
+                        </button>
+                        <button
+                          onClick={() => { if (boardRef.current) boardRef.current.flip(); }}
+                          className="bg-slate-800 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300"
+                        >
+                          Doskani aylantirish (Qoralar)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
+                      <h3 className="font-bold text-sm text-emerald-400">🎮 Shogirdga Navbat Berish</h3>
+                      <p className="text-[11px] text-slate-400">Qaysi oʻquvchi doskada yursin?</p>
+                      
+                      <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                        {students.map(st => (
+                          <div key={st.id} className="flex justify-between items-center p-2 rounded-xl bg-slate-950 border border-slate-800">
+                            <span className="text-xs text-white">{st.name}</span>
+                            <button
+                              onClick={() => setActiveStudentControl(st.name)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${activeStudentControl === st.name ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'}`}
+                            >
+                              {activeStudentControl === st.name ? 'Yurmoqda' : 'Ruxsat berish'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-800">
+                        <h4 className="text-xs font-bold text-slate-300 mb-2">📹 Dars Videolari (Arxiv)</h4>
+                        {recordedVideos.length === 0 ? (
+                          <p className="text-[11px] text-slate-500">Hozircha yozilgan darslar yoʻq.</p>
+                        ) : (
+                          recordedVideos.map(vid => (
+                            <div key={vid.id} className="p-2 bg-slate-950 rounded-xl border border-slate-800 text-[11px] space-y-1 mb-1">
+                              <p className="text-slate-300 font-semibold">{vid.date}</p>
+                              <a href={vid.url} download="shaxmat_dars.webm" className="text-emerald-400 font-bold block">
+                                📥 Videoni yuklab olish
+                              </a>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* KASSA & MOLIYA */}
+              {activeTab === 'finance' && (
+                <div className="space-y-4">
+                  <h2 className="text-base font-bold text-white">💰 Moliya & Toʻlovlar Nazorati</h2>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <p className="text-xs text-slate-400">Jami tushgan mablagʻ</p>
+                      <p className="text-2xl font-black text-emerald-400 mt-1">{totalIncome.toLocaleString()} soʻm</p>
+                    </div>
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+                      <p className="text-xs text-slate-400">Qarzdorlar soni</p>
+                      <p className="text-2xl font-black text-rose-400 mt-1">{totalDebtors} ta oʻquvchi</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {students.map(st => (
+                      <div key={st.id} className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-sm text-white">{st.name}</p>
+                          <p className="text-xs text-slate-400">Oylik toʻlov: {Number(st.monthlyFee).toLocaleString()} soʻm</p>
+                        </div>
+                        <button
+                          onClick={() => togglePayment(st.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${st.isPaid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}
+                        >
+                          {st.isPaid ? '✓ Toʻlangan' : '✕ Toʻlanmagan'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </main>
+
+            {/* Mobil Pastki Menyu */}
+            <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex justify-around p-2 z-20">
+              <button onClick={() => setActiveTab('dashboard')} className={`p-2 text-xs font-semibold ${activeTab === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'}`}>📊 Panel</button>
+              <button onClick={() => setActiveTab('students')} className={`p-2 text-xs font-semibold ${activeTab === 'students' ? 'text-emerald-400' : 'text-slate-400'}`}>👥 Oʻquvchi</button>
+              <button onClick={() => setActiveTab('journal')} className={`p-2 text-xs font-semibold ${activeTab === 'journal' ? 'text-emerald-400' : 'text-slate-400'}`}>📅 Jurnal</button>
+              <button onClick={() => setActiveTab('live')} className={`p-2 text-xs font-semibold ${activeTab === 'live' ? 'text-emerald-400' : 'text-slate-400'}`}>🔴 Dars</button>
+              <button onClick={() => setActiveTab('finance')} className={`p-2 text-xs font-semibold ${activeTab === 'finance' ? 'text-emerald-400' : 'text-slate-400'}`}>💰 Kassa</button>
+            </nav>
+          </div>
+
+          {/* O'quvchi qo'shish Modali */}
+          {showAddStudentModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl w-full max-w-md space-y-4 max-h-[90vh] overflow-y-auto">
+                <h3 className="text-base font-bold text-white">Yangi Oʻquvchi Qoʻshish</h3>
+                <form onSubmit={handleAddStudent} className="space-y-3">
+                  <input
+                    required
+                    type="text"
+                    placeholder="F.I.O"
+                    value={studentForm.name}
+                    onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      placeholder="Yoshi"
+                      value={studentForm.age}
+                      onChange={(e) => setStudentForm({ ...studentForm, age: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                    />
+                    <select
+                      value={studentForm.group}
+                      onChange={(e) => setStudentForm({ ...studentForm, group: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                    >
+                      {groups.map((g, i) => <option key={i} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Telefon raqami"
+                      value={studentForm.phone}
+                      onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Ota-onasining tel raqami"
+                      value={studentForm.parentPhone}
+                      onChange={(e) => setStudentForm({ ...studentForm, parentPhone: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Lichess username"
+                      value={studentForm.lichessUsername}
+                      onChange={(e) => setStudentForm({ ...studentForm, lichessUsername: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Boshlangʻich reyting"
+                      value={studentForm.initialRating}
+                      onChange={(e) => setStudentForm({ ...studentForm, initialRating: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                    />
+                  </div>
+                  <textarea
+                    placeholder="Diagnostika / Boshlangʻich holat (debyut, xatolar)"
+                    value={studentForm.initialDiagnosis}
+                    onChange={(e) => setStudentForm({ ...studentForm, initialDiagnosis: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                    rows="2"
+                  />
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddStudentModal(false)}
+                      className="flex-1 bg-slate-800 py-2.5 rounded-xl text-xs font-semibold text-slate-300"
+                    >
+                      Bekor qilish
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-2.5 rounded-xl text-xs font-bold text-white"
+                    >
+                      Saqlash
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Guruh qo'shish Modali */}
+          {showAddGroupModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl w-full max-w-sm space-y-4">
+                <h3 className="text-base font-bold text-white">Yangi Guruh Qoʻshish</h3>
+                <form onSubmit={handleAddGroup} className="space-y-3">
+                  <input
+                    required
+                    type="text"
+                    placeholder="Guruh nomi (Masalan: Pro - Dushanba 16:00)"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddGroupModal(false)}
+                      className="flex-1 bg-slate-800 py-2 rounded-xl text-xs font-semibold text-slate-300"
+                    >
+                      Bekor qilish
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-2 rounded-xl text-xs font-bold text-white"
+                    >
+                      Qoʻshish
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* O'chirishni tasdiqlash modali (Parolsiz) */}
+          {deleteConfirmStudent && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl w-full max-w-xs space-y-4 text-center">
+                <h3 className="font-bold text-white text-base">Oʻquvchini oʻchirish</h3>
+                <p className="text-xs text-slate-400">
+                  <strong className="text-white">{deleteConfirmStudent.name}</strong> bazadan oʻchirilsinmi?
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setDeleteConfirmStudent(null)}
+                    className="flex-1 bg-slate-800 py-2 rounded-xl text-xs font-semibold text-slate-300"
+                  >
+                    Bekor qilish
+                  </button>
+                  <button
+                    onClick={confirmDelete}
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 py-2 rounded-xl text-xs font-bold text-white"
+                  >
+                    Ha, oʻchirish
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
 </body>
 </html>

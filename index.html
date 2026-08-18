@@ -24,7 +24,7 @@
   <style>
     #myBoard {
       width: 100%;
-      max-width: 400px;
+      max-width: 380px;
       margin: 0 auto;
     }
     .custom-scrollbar::-webkit-scrollbar {
@@ -43,7 +43,6 @@
     const { useState, useEffect, useRef } = React;
 
     function App() {
-      // 1. Foydalanuvchi & Kirish holati
       const [currentUser, setCurrentUser] = useState(null);
       const [authMode, setAuthMode] = useState('login');
       const [usernameInput, setUsernameInput] = useState('');
@@ -51,34 +50,27 @@
       const [coachNameInput, setCoachNameInput] = useState('');
       const [authError, setAuthError] = useState('');
 
-      // 2. Asosiy Menyu (LC Up Uslubida)
       const [activeTab, setActiveTab] = useState('dashboard');
-
-      // 3. Markaz va Ma'lumotlar bazasi
       const [students, setStudents] = useState([]);
       const [groups, setGroups] = useState(['Boshlangʻich - Toq kunlar', 'Havaskor - Juft kunlar', 'Individual']);
       const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
       const [selectedGroup, setSelectedGroup] = useState('Boshlangʻich - Toq kunlar');
       const [selectedTopicNum, setSelectedTopicNum] = useState('');
 
-      // 4. Modallar
       const [showAddStudentModal, setShowAddStudentModal] = useState(false);
       const [showAddGroupModal, setShowAddGroupModal] = useState(false);
       const [newGroupName, setNewGroupName] = useState('');
       const [deleteConfirmStudent, setDeleteConfirmStudent] = useState(null);
 
-      // 5. Jonli Dars & Ekran Yozib Olish
       const [isRecording, setIsRecording] = useState(false);
       const [activeStudentControl, setActiveStudentControl] = useState(null);
       const [recordedVideos, setRecordedVideos] = useState([]);
       const mediaRecorderRef = useRef(null);
       const recordedChunksRef = useRef([]);
 
-      // Shaxmat doskasi
       const boardRef = useRef(null);
       const gameRef = useRef(null);
 
-      // O'quvchi anketasi
       const [studentForm, setStudentForm] = useState({
         name: '', age: '', phone: '', parentPhone: '',
         lichessUsername: '', initialRating: '',
@@ -87,7 +79,6 @@
         isPaid: false
       });
 
-      // Avvalgi seansni tekshirish
       useEffect(() => {
         const savedSession = localStorage.getItem('apex_active_coach');
         if (savedSession) {
@@ -116,13 +107,11 @@
         if (currentUser) localStorage.setItem(`apex_groups_${currentUser.username}`, JSON.stringify(newGr));
       };
 
-      // Tizimga kirish mantiqi
       const handleAuth = (e) => {
         e.preventDefault();
         setAuthError('');
         const coaches = JSON.parse(localStorage.getItem('apex_coaches') || '{}');
 
-        // Bosh Admin kirishi
         if (usernameInput === 'bekzod' && passwordInput === 'jovliyev75828') {
           const adminUser = { username: 'bekzod', name: 'Bekzod (Bosh Admin)', role: 'admin' };
           localStorage.setItem('apex_active_coach', JSON.stringify(adminUser));
@@ -159,7 +148,6 @@
         setCurrentUser(null);
       };
 
-      // O'quvchi qo'shish
       const handleAddStudent = (e) => {
         e.preventDefault();
         const newSt = {
@@ -179,7 +167,6 @@
         });
       };
 
-      // Guruh qo'shish
       const handleAddGroup = (e) => {
         e.preventDefault();
         if (!newGroupName.trim()) return;
@@ -189,7 +176,6 @@
         setShowAddGroupModal(false);
       };
 
-      // O'chirish (Parolsiz)
       const confirmDelete = () => {
         if (!deleteConfirmStudent) return;
         const updated = students.filter(s => s.id !== deleteConfirmStudent.id);
@@ -197,7 +183,6 @@
         setDeleteConfirmStudent(null);
       };
 
-      // To'lov holati
       const togglePayment = (studentId) => {
         const updated = students.map(s => {
           if (s.id === studentId) return { ...s, isPaid: !s.isPaid };
@@ -206,7 +191,6 @@
         saveStudents(updated);
       };
 
-      // Davomat
       const toggleAttendance = (studentId, status) => {
         const updated = students.map(s => {
           if (s.id === studentId) {
@@ -226,7 +210,7 @@
         saveStudents(updated);
       };
 
-      // Shaxmat doskasini ishga tushirish
+      // Shaxmat doskasini ishga tushirish (Lichess rasmlari bilan)
       useEffect(() => {
         if (activeTab === 'live' && window.ChessBoard && window.Chess) {
           setTimeout(() => {
@@ -234,6 +218,7 @@
             boardRef.current = window.ChessBoard('myBoard', {
               draggable: true,
               position: 'start',
+              pieceTheme: 'https://lichess1.org/assets/piece/cburnett/{piece}.svg',
               onDrop: (source, target) => {
                 const move = gameRef.current.move({
                   from: source,
@@ -243,17 +228,27 @@
                 if (move === null) return 'snapback';
               }
             });
-          }, 100);
+          }, 150);
         }
       }, [activeTab]);
 
-      // Ekran yozib olish (MediaRecorder)
+      // Ekran yozib olish (Universal MediaRecorder)
       const startRecording = async () => {
         try {
-          const stream = await navigator.mediaDevices.getDisplayMedia({
-            video: { mediaSource: 'screen' },
-            audio: true
-          });
+          let stream;
+          if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+            stream = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: true
+            });
+          } else if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            // Telefonlar uchun audio/video oqimi
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } else {
+            alert("Qurilmangizda video yozish qoʻllab-quvvatlanmaydi.");
+            return;
+          }
+
           mediaRecorderRef.current = new MediaRecorder(stream);
           recordedChunksRef.current = [];
 
@@ -280,7 +275,7 @@
           mediaRecorderRef.current.start();
           setIsRecording(true);
         } catch (err) {
-          alert("Ekran yozish bekor qilindi yoki ruxsat berilmadi.");
+          alert("Yozib olish bekor qilindi.");
         }
       };
 
@@ -290,7 +285,6 @@
         }
       };
 
-      // 1. KIRISH EKRANI (Auth)
       if (!currentUser) {
         return (
           <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -354,13 +348,12 @@
         );
       }
 
-      // Moliya ko'rsatkichlari
       const totalIncome = students.filter(s => s.isPaid).reduce((acc, s) => acc + Number(s.monthlyFee || 0), 0);
       const totalDebtors = students.filter(s => !s.isPaid).length;
 
       return (
         <div className="flex min-h-screen bg-slate-950 text-slate-100">
-          {/* Chap Yon Menyu (LC Up Uslubida) */}
+          {/* Chap Yon Menyu */}
           <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between hidden md:flex">
             <div className="p-5 space-y-6">
               <div>
@@ -465,7 +458,7 @@
                 </div>
               )}
 
-              {/* O'QUVCHILAR BAZASI */}
+              {/* O'QUVCHILAR */}
               {activeTab === 'students' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -481,7 +474,7 @@
                   <div className="grid gap-3">
                     {students.length === 0 ? (
                       <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center text-xs text-slate-500">
-                        Hozircha oʻquvchilar yoʻq. Yuqoridagi "+ Oʻquvchi" tugmasi orqali yangi oʻquvchi qoʻshing.
+                        Hozircha oʻquvchilar yoʻq. "+ Oʻquvchi" tugmasi orqali yangi oʻquvchi qoʻshing.
                       </div>
                     ) : (
                       students.map(st => (
@@ -764,7 +757,7 @@
             </nav>
           </div>
 
-          {/* O'quvchi qo'shish Modali */}
+          {/* Modallar */}
           {showAddStudentModal && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl w-full max-w-md space-y-4 max-h-[90vh] overflow-y-auto">
@@ -853,7 +846,6 @@
             </div>
           )}
 
-          {/* Guruh qo'shish Modali */}
           {showAddGroupModal && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl w-full max-w-sm space-y-4">
@@ -887,7 +879,6 @@
             </div>
           )}
 
-          {/* O'chirishni tasdiqlash modali (Parolsiz) */}
           {deleteConfirmStudent && (
             <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl w-full max-w-xs space-y-4 text-center">

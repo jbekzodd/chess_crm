@@ -9,10 +9,8 @@
   <!-- React va ReactDOM CDN -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- Babel CDN (JSX uchun) -->
+  <!-- Babel CDN -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 antialiased min-h-screen">
   <div id="root"></div>
@@ -27,6 +25,13 @@
     ];
 
     function App() {
+      const [currentUser, setCurrentUser] = useState(null);
+      const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
+      const [usernameInput, setUsernameInput] = useState('');
+      const [passwordInput, setPasswordInput] = useState('');
+      const [coachNameInput, setCoachNameInput] = useState('');
+      const [authError, setAuthError] = useState('');
+
       const [activeTab, setActiveTab] = useState('students');
       const [students, setStudents] = useState([]);
       const [showAddModal, setShowAddModal] = useState(false);
@@ -42,10 +47,20 @@
       const [topicNote, setTopicNote] = useState('');
       const [selectedTopicNum, setSelectedTopicNum] = useState('');
 
+      // Avtomatik sessiyani tekshirish
       useEffect(() => {
-        const saved = localStorage.getItem('chess_crm_students');
-        if (saved) {
-          setStudents(JSON.parse(saved));
+        const savedSession = localStorage.getItem('chess_crm_active_coach');
+        if (savedSession) {
+          const coach = JSON.parse(savedSession);
+          setCurrentUser(coach);
+          loadCoachData(coach.username);
+        }
+      }, []);
+
+      const loadCoachData = (username) => {
+        const savedStudents = localStorage.getItem(`chess_crm_students_${username}`);
+        if (savedStudents) {
+          setStudents(JSON.parse(savedStudents));
         } else {
           const defaultData = [
             {
@@ -62,13 +77,51 @@
             }
           ];
           setStudents(defaultData);
-          localStorage.setItem('chess_crm_students', JSON.stringify(defaultData));
+          localStorage.setItem(`chess_crm_students_${username}`, JSON.stringify(defaultData));
         }
-      }, []);
+      };
 
       const saveStudents = (newStudents) => {
         setStudents(newStudents);
-        localStorage.setItem('chess_crm_students', JSON.stringify(newStudents));
+        if (currentUser) {
+          localStorage.setItem(`chess_crm_students_${currentUser.username}`, JSON.stringify(newStudents));
+        }
+      };
+
+      const handleAuth = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        const coaches = JSON.parse(localStorage.getItem('chess_crm_coaches') || '{}');
+
+        if (authMode === 'register') {
+          if (coaches[usernameInput]) {
+            setAuthError('Ushbu login band. Boshqa login tanlang.');
+            return;
+          }
+          const newCoach = { username: usernameInput, password: passwordInput, name: coachNameInput || usernameInput };
+          coaches[usernameInput] = newCoach;
+          localStorage.setItem('chess_crm_coaches', JSON.stringify(coaches));
+          localStorage.setItem('chess_crm_active_coach', JSON.stringify(newCoach));
+          setCurrentUser(newCoach);
+          loadCoachData(newCoach.username);
+        } else {
+          const coach = coaches[usernameInput];
+          if (!coach || coach.password !== passwordInput) {
+            setAuthError('Login yoki parol notoʻgʻri!');
+            return;
+          }
+          localStorage.setItem('chess_crm_active_coach', JSON.stringify(coach));
+          setCurrentUser(coach);
+          loadCoachData(coach.username);
+        }
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('chess_crm_active_coach');
+        setCurrentUser(null);
+        setUsernameInput('');
+        setPasswordInput('');
+        setCoachNameInput('');
       };
 
       const handleAddStudent = (e) => {
@@ -127,20 +180,95 @@
         saveStudents(updated);
       };
 
+      // LOGIN / REGISTRATSIYA EKRANI
+      if (!currentUser) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4">
+            <div className="bg-slate-800 border border-slate-700 p-6 rounded-2xl w-full max-w-sm space-y-4 shadow-xl">
+              <div className="text-center space-y-1">
+                <h1 className="text-2xl font-bold text-emerald-400">♟️ Murabbiy CRM</h1>
+                <p className="text-xs text-slate-400">
+                  {authMode === 'login' ? 'Murabbiy kabinetiga kirish' : 'Yangi murabbiy roʻyxatdan oʻtish'}
+                </p>
+              </div>
+
+              {authError && (
+                <div className="bg-rose-500/20 border border-rose-500/50 p-2.5 rounded-xl text-xs text-rose-300 text-center">
+                  {authError}
+                </div>
+              )}
+
+              <form onSubmit={handleAuth} className="space-y-3">
+                {authMode === 'register' && (
+                  <input
+                    required
+                    type="text"
+                    placeholder="Ism Familiyangiz"
+                    value={coachNameInput}
+                    onChange={(e) => setCoachNameInput(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                  />
+                )}
+                <input
+                  required
+                  type="text"
+                  placeholder="Login"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                />
+                <input
+                  required
+                  type="password"
+                  placeholder="Parol"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="submit"
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 py-2.5 rounded-xl text-sm font-bold text-white transition shadow-lg mt-2"
+                >
+                  {authMode === 'login' ? 'Kirish' : 'Roʻyxatdan oʻtish'}
+                </button>
+              </form>
+
+              <div className="text-center pt-2">
+                <button
+                  onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}
+                  className="text-xs text-slate-400 hover:text-emerald-400 transition"
+                >
+                  {authMode === 'login' ? 'Yangi murabbiymisiz? Roʻyxatdan oʻting' : 'Akkauntingiz bormi? Tizimga kiring'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ASOSIY DASHBOARD
       return (
         <div className="max-w-md mx-auto min-h-screen bg-slate-900 flex flex-col pb-24 sm:max-w-xl md:max-w-2xl border-x border-slate-800">
           {/* Header */}
           <header className="p-4 bg-slate-800/80 backdrop-blur-md border-b border-slate-700 flex justify-between items-center sticky top-0 z-10">
             <div>
-              <h1 className="text-xl font-bold text-emerald-400">♟️ Murabbiy CRM</h1>
-              <p className="text-xs text-slate-400">Shaxmat darslari nazorati</p>
+              <h1 className="text-base font-bold text-emerald-400">♟️ {currentUser.name}</h1>
+              <p className="text-[11px] text-slate-400">@{currentUser.username} • Murabbiy</p>
             </div>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="bg-emerald-500 hover:bg-emerald-600 px-3 py-2 rounded-xl text-white text-xs font-bold transition shadow-lg"
-            >
-              + Oʻquvchi
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded-xl text-white text-xs font-bold transition shadow-md"
+              >
+                + Oʻquvchi
+              </button>
+              <button
+                onClick={handleLogout}
+                className="bg-slate-700 hover:bg-slate-600 px-2.5 py-1.5 rounded-xl text-slate-300 text-xs font-medium transition"
+              >
+                Chiqish
+              </button>
+            </div>
           </header>
 
           {/* Kontent */}
@@ -148,31 +276,35 @@
             {/* 1. O'quvchilar & Diagnostika */}
             {activeTab === 'students' && (
               <div className="space-y-4">
-                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Oʻquvchilar Roʻyxati</h2>
-                {students.map((st) => (
-                  <div key={st.id} className="bg-slate-800 border border-slate-700 p-4 rounded-2xl space-y-2">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-base text-white">{st.name}</h3>
-                        <p className="text-xs text-slate-400">{st.age} yosh • {st.phone}</p>
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Mening Oʻquvchilarim ({students.length})</h2>
+                {students.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center py-6">Hozircha oʻquvchilar yoʻq. + tugmasini bosib qoʻshing.</p>
+                ) : (
+                  students.map((st) => (
+                    <div key={st.id} className="bg-slate-800 border border-slate-700 p-4 rounded-2xl space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-bold text-base text-white">{st.name}</h3>
+                          <p className="text-xs text-slate-400">{st.age} yosh • {st.phone}</p>
+                        </div>
+                        {st.lichessUsername && (
+                          <a
+                            href={`https://lichess.org/@/${st.lichessUsername}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-slate-700 hover:bg-slate-600 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-300 transition"
+                          >
+                            Lichess ↗
+                          </a>
+                        )}
                       </div>
-                      {st.lichessUsername && (
-                        <a
-                          href={`https://lichess.org/@/${st.lichessUsername}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="bg-slate-700 hover:bg-slate-600 px-2.5 py-1 rounded-lg text-xs font-medium text-emerald-300 transition"
-                        >
-                          Lichess ↗
-                        </a>
-                      )}
+                      <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-700/50 space-y-1 text-xs">
+                        <p><span className="text-emerald-400 font-semibold">Boshlangʻich holat:</span> {st.initialDiagnosis || 'Kiritilmagan'}</p>
+                        <p><span className="text-sky-400 font-semibold">3 oylik maqsad:</span> {st.threeMonthGoal || 'Kiritilmagan'}</p>
+                      </div>
                     </div>
-                    <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-700/50 space-y-1 text-xs">
-                      <p><span className="text-emerald-400 font-semibold">Boshlangʻich holat:</span> {st.initialDiagnosis || 'Kiritilmagan'}</p>
-                      <p><span className="text-sky-400 font-semibold">3 oylik maqsad:</span> {st.threeMonthGoal || 'Kiritilmagan'}</p>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             )}
 
@@ -330,14 +462,14 @@
                   />
                   <textarea
                     placeholder="Boshlangʻich holat (debyutlar, kamchiliklar)"
-                    rows="2"
+                    rows={2}
                     value={formData.initialDiagnosis}
                     onChange={(e) => setFormData({ ...formData, initialDiagnosis: e.target.value })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm text-white"
                   />
                   <textarea
                     placeholder="3 oylik maqsad"
-                    rows="2"
+                    rows={2}
                     value={formData.threeMonthGoal}
                     onChange={(e) => setFormData({ ...formData, threeMonthGoal: e.target.value })}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-sm text-white"

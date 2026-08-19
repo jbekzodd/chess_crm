@@ -1,5 +1,4 @@
 // --- Chess Coach UZ Engine & Storage --- //
-
 const DB_KEY = 'chess_coach_uz_master_db';
 
 const defaultDB = {
@@ -42,8 +41,7 @@ function saveDB(db) {
   localStorage.setItem(DB_KEY, JSON.stringify(db));
 }
 
-// --- React Asosiy Tizimi --- //
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect } = React;
 
 function App() {
   const [db, setDb] = useState(getDB());
@@ -57,22 +55,20 @@ function App() {
   const [activeSubTab, setActiveSubTab] = useState('all');
 
   // Auth Form State
-  const [authMode, setAuthMode] = useState('login'); // login | register
+  const [authMode, setAuthMode] = useState('login');
   const [authData, setAuthData] = useState({ username: '', password: '', name: '', role: 'coach', centerName: '' });
   const [authError, setAuthError] = useState('');
 
-  // Yangi element qo'shish modallari
-  const [modalType, setModalType] = useState(null); // 'center' | 'director' | 'group' | 'student' | 'transfer'
+  // Modallar
+  const [modalType, setModalType] = useState(null); // 'director' | 'group' | 'student'
   const [modalData, setModalData] = useState({});
 
-  // Jonli Dars Doskasi State'lari
-  const [gameRoom, setGameRoom] = useState(null);
-  const [boardPosition, setBoardPosition] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
-  const [turnControl, setTurnControl] = useState('both'); // coach | student | both
-  const [selectedSquare, setSelectedSquare] = useState(null);
-  const [isLiveActive, setIsLiveActive] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
+  // Jonli Dars
+  const [turnControl, setTurnControl] = useState('both');
   const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState([
+    { sender: 'Tizim', text: 'Jonli dars xonasi tayyor.' }
+  ]);
 
   const syncDB = (newDb) => {
     setDb(newDb);
@@ -82,7 +78,9 @@ function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     setAuthError('');
-    const user = db.users.find(u => u.username.toLowerCase() === authData.username.toLowerCase().trim() && u.password === authData.password);
+    const cleanUser = authData.username.toLowerCase().trim();
+    const user = db.users.find(u => u.username.toLowerCase() === cleanUser && u.password === authData.password);
+    
     if (!user) {
       setAuthError("Username yoki parol noto'g'ri!");
       return;
@@ -99,28 +97,27 @@ function App() {
     setAuthError('');
     const cleanUser = authData.username.trim();
 
-    // Validatsiyalar
     if (/\s/.test(cleanUser)) {
-      setAuthError("Username'da bo'sh joy (space) bo'lishi mumkin emas!");
+      setAuthError("Username'da bo'sh joy (probel) bo'lishi mumkin emas!");
       return;
     }
     if (!/^[a-zA-Z0-9_]{6,}$/.test(cleanUser)) {
-      setAuthError("Username kamida 6 belgidan iborat, faqat harf, son va pastki chiziqcha (_) bo'lishi kerak!");
+      setAuthError("Username kamida 6 ta belgi bo'lishi shart (harf, son, _)!");
       return;
     }
     if (authData.password.length < 6) {
-      setAuthError("Parol kamida 6 belgidan iborat bo'lishi kerak!");
+      setAuthError("Parol kamida 6 ta belgi bo'lishi shart!");
       return;
     }
     if (db.users.some(u => u.username.toLowerCase() === cleanUser.toLowerCase())) {
-      setAuthError("Ushbu username band! Boshqa nom tanlang.");
+      setAuthError("Ushbu username allaqachon band!");
       return;
     }
 
     const newUserId = 'user_' + Date.now();
     let userCenterId = null;
-
     let updatedCenters = [...db.centers];
+
     if (authData.role === 'director') {
       userCenterId = 'center_' + Date.now();
       updatedCenters.push({
@@ -152,6 +149,54 @@ function App() {
     localStorage.setItem('chess_coach_current_user', JSON.stringify(newUser));
   };
 
+  // SUPER ADMIN TOMONIDAN DIREKTOR QO'SHISH (Super admin akkauntidan chiqib ketmaslik uchun alohida funksiya)
+  const handleSuperAddDirector = (e) => {
+    e.preventDefault();
+    const cleanUser = modalData.username?.trim();
+    if (!cleanUser || /\s/.test(cleanUser) || cleanUser.length < 6) {
+      alert("Username kamida 6 belgidan iborat va probelsiz bo'lishi shart!");
+      return;
+    }
+    if (!modalData.password || modalData.password.length < 6) {
+      alert("Parol kamida 6 belgidan iborat bo'lishi shart!");
+      return;
+    }
+    if (db.users.some(u => u.username.toLowerCase() === cleanUser.toLowerCase())) {
+      alert("Bu username tizimda mavjud!");
+      return;
+    }
+
+    const newDirId = 'dir_' + Date.now();
+    const newCenterId = 'center_' + Date.now();
+
+    const newDirector = {
+      id: newDirId,
+      username: cleanUser,
+      password: modalData.password,
+      name: modalData.name || 'Direktor',
+      role: 'director',
+      centerId: newCenterId,
+      online: false,
+      lastActive: new Date().toISOString()
+    };
+
+    const newCenter = {
+      id: newCenterId,
+      name: modalData.centerName || 'Yangi Akademiya',
+      directorId: newDirId
+    };
+
+    syncDB({
+      ...db,
+      users: [...db.users, newDirector],
+      centers: [...db.centers, newCenter]
+    });
+
+    setModalType(null);
+    setModalData({});
+    alert("Yangi direktor va akademiya muvaffaqiyatli qo'shildi!");
+  };
+
   const handleLogout = () => {
     if (currentUser) {
       const u = db.users.find(x => x.id === currentUser.id);
@@ -162,27 +207,25 @@ function App() {
     localStorage.removeItem('chess_coach_current_user');
   };
 
-  // --- Filterlangan ma'lumotlar (Izolyatsiya qoidasi) --- //
   const isSuper = currentUser?.role === 'superadmin';
   const isDirector = currentUser?.role === 'director';
-  
+
   const accessibleCenters = isSuper ? db.centers : db.centers.filter(c => c.directorId === currentUser?.id || c.id === currentUser?.centerId);
   const currentCenter = accessibleCenters[0] || null;
 
   const accessibleGroups = isSuper ? db.groups : db.groups.filter(g => isDirector ? g.centerId === currentCenter?.id : g.coachId === currentUser?.id);
   const accessibleStudents = isSuper ? db.students : db.students.filter(s => accessibleGroups.some(g => g.id === s.groupId));
 
-  // --- Boshqaruv funksiyalari --- //
   const addGroup = (e) => {
     e.preventDefault();
     if (!modalData.name) return;
     const newGroup = {
       id: 'grp_' + Date.now(),
       name: modalData.name,
-      days: modalData.days || 'Dush-Sesh-Chor',
-      time: modalData.time || '14:00 - 16:00',
-      coachId: modalData.coachId || currentUser.id,
-      coachName: modalData.coachName || currentUser.name,
+      days: modalData.days || 'Dush-Chor-Juma',
+      time: modalData.time || '15:00 - 17:00',
+      coachId: currentUser.id,
+      coachName: currentUser.name,
       centerId: currentCenter?.id || 'center_1',
       price: Number(modalData.price) || 300000
     };
@@ -192,7 +235,7 @@ function App() {
   };
 
   const deleteGroup = (groupId) => {
-    if (!confirm("Guruhni butunlay o'chirmoqchimisiz?")) return;
+    if (!confirm("Guruhni o'chirishni xohlaysizmi?")) return;
     syncDB({
       ...db,
       groups: db.groups.filter(g => g.id !== groupId),
@@ -210,8 +253,7 @@ function App() {
       groupId: modalData.groupId,
       joinedDate: new Date().toLocaleDateString(),
       paidCurrentMonth: false,
-      debt: Number(modalData.debt) || 0,
-      achievements: []
+      debt: 300000
     };
     syncDB({ ...db, students: [...db.students, newStudent] });
     setModalType(null);
@@ -221,33 +263,32 @@ function App() {
   const togglePayment = (studentId) => {
     const updated = db.students.map(s => {
       if (s.id === studentId) {
-        return { ...s, paidCurrentMonth: !s.paidCurrentMonth, debt: s.paidCurrentMonth ? 300000 : 0 };
+        const nextState = !s.paidCurrentMonth;
+        return { ...s, paidCurrentMonth: nextState, debt: nextState ? 0 : 300000 };
       }
       return s;
     });
     syncDB({ ...db, students: updated });
   };
 
-  // --- Shaxmat Taxtasi Harakat Logikasi --- //
-  const handleSquareClick = (square) => {
-    if (!selectedSquare) {
-      setSelectedSquare(square);
-    } else {
-      // Soddalashtirilgan tosh surish mexanizmi
-      setSelectedSquare(null);
-    }
+  const sendChatMessage = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    setChatMessages([...chatMessages, { sender: currentUser.name, text: chatInput }]);
+    setChatInput('');
   };
 
+  // --- Auth oynasi ---
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl">
           <div className="text-center mb-6">
-            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto mb-3 text-3xl text-emerald-400">
-              ♟
+            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto mb-3 text-4xl text-emerald-400">
+              ♞
             </div>
             <h1 className="text-2xl font-black tracking-wide text-white">Chess Coach UZ</h1>
-            <p className="text-xs text-slate-400 mt-1">Shaxmat Akademiyalari Boshqaruv Tizimi</p>
+            <p className="text-xs text-slate-400 mt-1">Shaxmat Boshqaruv & CRM Tizimi</p>
           </div>
 
           <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
@@ -275,7 +316,7 @@ function App() {
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Username</label>
                 <input 
                   type="text"
-                  placeholder="masalan: bekzod_coach"
+                  placeholder="masalan: bekzod_admin"
                   value={authData.username}
                   onChange={e => setAuthData({...authData, username: e.target.value.replace(/\s+/g, '')})}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500"
@@ -303,7 +344,7 @@ function App() {
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Ism Familiya</label>
                 <input 
                   type="text"
-                  placeholder="Bekzod Javliev"
+                  placeholder="Ismingiz"
                   value={authData.name}
                   onChange={e => setAuthData({...authData, name: e.target.value})}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
@@ -311,10 +352,10 @@ function App() {
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Username (Bosh joylarsiz)</label>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Username (probelsiz)</label>
                 <input 
                   type="text"
-                  placeholder="bekzod_coach1"
+                  placeholder="bekzod_coach"
                   value={authData.username}
                   onChange={e => setAuthData({...authData, username: e.target.value.replace(/\s+/g, '')})}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
@@ -365,32 +406,33 @@ function App() {
     );
   }
 
-  // --- Asosiy CRM Interfeysi --- //
+  // --- Asosiy Panel ---
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
-      {/* Mobil Header */}
+      {/* Mobil Header: 3 ta chiziqcha CHAP TOMONDA */}
       <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 sticky top-0 z-40">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-white text-lg">♟</div>
-          <span className="font-extrabold text-lg text-white">Chess Coach UZ</span>
+        <div className="flex items-center space-x-3">
+          <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 bg-slate-800 rounded-xl text-slate-200 text-lg">
+            ☰
+          </button>
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-white text-xl">♞</div>
+            <span className="font-extrabold text-base text-white">Chess Coach UZ</span>
+          </div>
         </div>
-        <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 bg-slate-800 rounded-lg text-slate-200">
-          ☰
-        </button>
       </div>
 
-      {/* Chap Menyu (Sidebar) */}
+      {/* Chap Menyu */}
       <aside className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col justify-between transform transition-transform duration-200 ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div>
           <div className="p-6 border-b border-slate-800 hidden md:flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-emerald-500/30">♟</div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-emerald-500/30">♞</div>
             <div>
               <h2 className="font-black text-lg text-white leading-tight">Chess Coach UZ</h2>
               <p className="text-[11px] text-emerald-400 font-bold tracking-wide uppercase">Boshqaruv Tizimi</p>
             </div>
           </div>
 
-          {/* Menyu Bo'limlari */}
           <nav className="p-4 space-y-1.5">
             <button 
               onClick={() => { setActiveTab('dashboard'); setMenuOpen(false); }}
@@ -438,11 +480,10 @@ function App() {
           </nav>
         </div>
 
-        {/* Profil bloki */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/50 m-3 rounded-2xl">
           <div className="flex items-center space-x-3 mb-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center font-bold text-emerald-400">
-              {currentUser.name.charAt(0)}
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center font-bold text-emerald-400 text-lg">
+              ♞
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-bold text-white truncate">{currentUser.name}</p>
@@ -457,15 +498,15 @@ function App() {
         </div>
       </aside>
 
-      {/* Asosiy Ish Maydoni */}
+      {/* Asosiy qism */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl">
-        {/* SUPER ADMIN NAZORATI */}
+        {/* SUPER ADMIN BO'LIMI */}
         {activeTab === 'super_admin' && isSuper && (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-indigo-900/50 to-slate-900 border border-indigo-500/30 p-6 rounded-3xl">
               <div>
-                <h2 className="text-2xl font-black text-white">Super Admin Monitoring Tizimi</h2>
-                <p className="text-xs text-indigo-300 mt-1">Platformadagi barcha markazlar, direktorlar va real vaqtdagi foydalanuvchilar</p>
+                <h2 className="text-2xl font-black text-white">Super Admin Boshqaruvi</h2>
+                <p className="text-xs text-indigo-300 mt-1">Barcha markazlar, direktorlar parollari va tizim statistikasi</p>
               </div>
               <button 
                 onClick={() => { setModalType('director'); setModalData({}); }}
@@ -474,7 +515,6 @@ function App() {
               </button>
             </div>
 
-            {/* Real vaqt statlari */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
                 <p className="text-xs text-slate-400 font-bold uppercase">Jonli Ishlatayotganlar</p>
@@ -488,14 +528,13 @@ function App() {
                 <p className="text-3xl font-black text-white mt-2">{db.centers.length} ta</p>
               </div>
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
-                <p className="text-xs text-slate-400 font-bold uppercase">Jami O'quvchilar Tizimda</p>
+                <p className="text-xs text-slate-400 font-bold uppercase">Jami O'quvchilar Bazasi</p>
                 <p className="text-3xl font-black text-white mt-2">{db.students.length} ta</p>
               </div>
             </div>
 
-            {/* Direktorlar va Parollari Jadvali */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
-              <h3 className="text-lg font-bold text-white mb-4">Barcha Direktorlar va Akademiyalar Nazorati</h3>
+              <h3 className="text-lg font-bold text-white mb-4">Direktorlar va Akademiyalar Ro'yxati</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="text-xs text-slate-400 border-b border-slate-800 uppercase">
@@ -503,7 +542,7 @@ function App() {
                       <th className="pb-3">Akademiya</th>
                       <th className="pb-3">Direktor</th>
                       <th className="pb-3">Username</th>
-                      <th className="pb-3">Parol (Admin uchun)</th>
+                      <th className="pb-3">Parol</th>
                       <th className="pb-3">Holati</th>
                     </tr>
                   </thead>
@@ -537,20 +576,19 @@ function App() {
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-xs font-bold">
-                  {currentCenter?.name || "Shaxsiy Kabinet"}
+                  {currentCenter?.name || "Shaxsiy Akademiya"}
                 </span>
                 <h1 className="text-2xl md:text-3xl font-black text-white mt-2">Salom, {currentUser.name}!</h1>
-                <p className="text-xs text-slate-400 mt-1">Guruhlar, to'lovlar va jonli shaxmat darslari nazorati</p>
+                <p className="text-xs text-slate-400 mt-1">Guruhlar, to'lovlar va darslar nazorati</p>
               </div>
               <button 
                 onClick={() => { setActiveTab('live'); }}
                 className="px-6 py-3 bg-rose-500 hover:bg-rose-600 font-bold rounded-2xl shadow-lg shadow-rose-500/30 flex items-center space-x-2">
                 <span>🔴</span>
-                <span>Jonli Darsga O'tish</span>
+                <span>Jonli Dars Xonasiga Kirish</span>
               </button>
             </div>
 
-            {/* Asosiy ko'rsatkichlar */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div onClick={() => setActiveTab('groups')} className="cursor-pointer bg-slate-900 border border-slate-800 hover:border-emerald-500/40 p-5 rounded-2xl transition-all">
                 <p className="text-xs font-bold text-slate-400 uppercase">Guruhlar</p>
@@ -580,13 +618,13 @@ function App() {
           </div>
         )}
 
-        {/* GURUHLAR BO'LIMI */}
+        {/* GURUHLAR */}
         {activeTab === 'groups' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-2xl font-black text-white">Guruhlar Ro'yxati</h2>
-                <p className="text-xs text-slate-400">Har bir guruh uchun mas'ul murabbiy va vaqtlar</p>
+                <p className="text-xs text-slate-400">Har bir guruh uchun mas'ul murabbiy va jadval</p>
               </div>
               <button 
                 onClick={() => { setModalType('group'); setModalData({}); }}
@@ -597,7 +635,7 @@ function App() {
 
             {accessibleGroups.length === 0 ? (
               <div className="p-12 text-center bg-slate-900 border border-dashed border-slate-800 rounded-3xl">
-                <div className="text-4xl mb-2">👥</div>
+                <div className="text-4xl mb-2 text-emerald-400">♞</div>
                 <p className="text-slate-400 text-sm">Hozircha hech qanday guruh mavjud emas.</p>
                 <button 
                   onClick={() => { setModalType('group'); setModalData({}); }}
@@ -644,13 +682,13 @@ function App() {
           </div>
         )}
 
-        {/* O'QUVCHILAR BO'LIMI */}
+        {/* O'QUVCHILAR */}
         {activeTab === 'students' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-2xl font-black text-white">O'quvchilar Bazasi</h2>
-                <p className="text-xs text-slate-400">Shogirdlar davomati va yutuqlari</p>
+                <p className="text-xs text-slate-400">Shogirdlar davomati va to'lov nazorati</p>
               </div>
               <button 
                 onClick={() => { setModalType('student'); setModalData({}); }}
@@ -712,7 +750,7 @@ function App() {
           <div className="space-y-6">
             <div>
               <h2 className="text-2xl font-black text-white">Kassa va Moliya Hisoboti</h2>
-              <p className="text-xs text-slate-400">Oylik tushumlar, qarzdorlar va murabbiylar ulushi</p>
+              <p className="text-xs text-slate-400">To'lov qilganlar va qarzdorlar ro'yxati</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -743,7 +781,7 @@ function App() {
           </div>
         )}
 
-        {/* JONLI DARS TAHXTASI (LICHESS/CHESS.COM STANDARTI) */}
+        {/* JONLI DARS TAXTASI */}
         {activeTab === 'live' && (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl">
@@ -752,21 +790,17 @@ function App() {
                   Jonli Dars Xonasi
                 </span>
                 <h2 className="text-2xl font-black text-white mt-2">Dars Kodingiz: <span className="text-emerald-400 font-mono">{currentUser.username}_1246</span></h2>
-                <p className="text-xs text-slate-400 mt-1">Shogirdlaringiz shu kod orqali dars taxtasiga ulanishadi</p>
+                <p className="text-xs text-slate-400 mt-1">Shogirdlar shu kod orqali to'g'ridan-to'g'ri ulanadi</p>
               </div>
-              <div className="flex space-x-3">
-                <button 
-                  onClick={() => setTurnControl(turnControl === 'coach' ? 'both' : 'coach')}
-                  className={`px-4 py-2.5 rounded-xl font-bold text-xs border ${turnControl === 'both' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
-                  {turnControl === 'both' ? "Shogirdga Navbat Berilgan ✓" : "Navbat Faqat Ustozda ✕"}
-                </button>
-              </div>
+              <button 
+                onClick={() => setTurnControl(turnControl === 'coach' ? 'both' : 'coach')}
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs border ${turnControl === 'both' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                {turnControl === 'both' ? "Shogirdga Navbat Berilgan ✓" : "Navbat Faqat Ustozda ✕"}
+              </button>
             </div>
 
-            {/* Taxta maydoni */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-3xl flex flex-col items-center">
-                {/* 8x8 Shaxmat Taxtasi (Touch-action to'g'irlangan) */}
                 <div 
                   className="w-full max-w-[420px] aspect-square grid grid-cols-8 grid-rows-8 border-4 border-slate-800 rounded-xl overflow-hidden shadow-2xl"
                   style={{ touchAction: 'none' }}>
@@ -774,43 +808,31 @@ function App() {
                     const row = Math.floor(i / 8);
                     const col = i % 8;
                     const isDark = (row + col) % 2 === 1;
-                    const squareName = `${String.fromCharCode(97 + col)}${8 - row}`;
-
                     return (
                       <div 
                         key={i}
-                        onClick={() => handleSquareClick(squareName)}
                         className={`flex items-center justify-center font-bold text-lg select-none cursor-pointer relative ${isDark ? 'bg-[#769656]' : 'bg-[#eeeed2]'}`}>
-                        {/* Koordinatalar */}
                         {col === 0 && <span className={`absolute top-0.5 left-1 text-[9px] font-bold ${isDark ? 'text-[#eeeed2]' : 'text-[#769656]'}`}>{8 - row}</span>}
                         {row === 7 && <span className={`absolute bottom-0.5 right-1 text-[9px] font-bold ${isDark ? 'text-[#eeeed2]' : 'text-[#769656]'}`}>{String.fromCharCode(97 + col)}</span>}
                       </div>
                     );
                   })}
                 </div>
-
-                <div className="flex space-x-2 mt-4">
-                  <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-300">
-                    Boshlang'ich Holat
-                  </button>
-                  <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-300">
-                    Taxtani Aylantirish
-                  </button>
-                </div>
               </div>
 
-              {/* Chat va Dars Qatnashchilari */}
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl flex flex-col justify-between h-[450px]">
                 <div>
-                  <h3 className="font-bold text-white text-sm mb-3">Dars Chati & Savollar</h3>
+                  <h3 className="font-bold text-white text-sm mb-3">Dars Chati</h3>
                   <div className="space-y-2 h-64 overflow-y-auto text-xs">
-                    <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
-                      <span className="font-bold text-emerald-400">Ustoz:</span> Dars boshlandi! Hamma e4 yurishini tahlil qilsin.
-                    </div>
+                    {chatMessages.map((msg, i) => (
+                      <div key={i} className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                        <span className="font-bold text-emerald-400">{msg.sender}:</span> {msg.text}
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <div className="flex space-x-2">
+                <form onSubmit={sendChatMessage} className="flex space-x-2">
                   <input 
                     type="text"
                     placeholder="Xabar yozing..."
@@ -818,63 +840,64 @@ function App() {
                     onChange={e => setChatInput(e.target.value)}
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
                   />
-                  <button className="px-4 py-2 bg-emerald-500 font-bold text-xs rounded-xl">
+                  <button type="submit" className="px-4 py-2 bg-emerald-500 font-bold text-xs rounded-xl">
                     Yuborish
                   </button>
-                </div>
+                </form>
               </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* MODALLAR */}
+      {/* SUPER ADMIN: DIREKTOR QO'SHISH MODALI */}
       {modalType === 'director' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold text-white mb-4">Yangi Direktor va Akademiya Qo'shish</h3>
-            <form onSubmit={handleRegister} className="space-y-3">
+            <h3 className="text-lg font-bold text-white mb-4">Yangi Direktor & Akademiya Qo'shish</h3>
+            <form onSubmit={handleSuperAddDirector} className="space-y-3">
               <input 
                 type="text"
-                placeholder="Direktor Ismi Familiyasi"
-                value={authData.name}
-                onChange={e => setAuthData({...authData, name: e.target.value, role: 'director'})}
+                placeholder="Direktor Ism-Familiyasi"
+                value={modalData.name || ''}
+                onChange={e => setModalData({...modalData, name: e.target.value})}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
                 required
               />
               <input 
                 type="text"
                 placeholder="Akademiya Nomi (Masalan: Yuksalish)"
-                value={authData.centerName}
-                onChange={e => setAuthData({...authData, centerName: e.target.value})}
+                value={modalData.centerName || ''}
+                onChange={e => setModalData({...modalData, centerName: e.target.value})}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
                 required
               />
               <input 
                 type="text"
-                placeholder="Username (bo'sh joysiz)"
-                value={authData.username}
-                onChange={e => setAuthData({...authData, username: e.target.value.replace(/\s+/g, '')})}
+                placeholder="Username (kamida 6 ta, probelsiz)"
+                value={modalData.username || ''}
+                onChange={e => setModalData({...modalData, username: e.target.value.replace(/\s+/g, '')})}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
                 required
               />
               <input 
                 type="password"
                 placeholder="Parol (kamida 6 ta belgi)"
-                value={authData.password}
-                onChange={e => setAuthData({...authData, password: e.target.value})}
+                value={modalData.password || ''}
+                onChange={e => setModalData({...modalData, password: e.target.value})}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
                 required
               />
               <div className="flex space-x-2 pt-2">
                 <button type="button" onClick={() => setModalType(null)} className="flex-1 py-2.5 bg-slate-800 font-bold text-xs rounded-xl">Bekor qilish</button>
-                <button type="submit" className="flex-1 py-2.5 bg-indigo-600 font-bold text-xs rounded-xl">Qo'shish</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-600 font-bold text-xs rounded-xl">Direktorni Qo'shish</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
+      {/* GURUH QO'SHISH MODALI */}
       {modalType === 'group' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
@@ -882,7 +905,7 @@ function App() {
             <form onSubmit={addGroup} className="space-y-3">
               <input 
                 type="text"
-                placeholder="Guruh Nomi (Masalan: Boshlang'ich A)"
+                placeholder="Guruh Nomi"
                 value={modalData.name || ''}
                 onChange={e => setModalData({...modalData, name: e.target.value})}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
@@ -918,6 +941,7 @@ function App() {
         </div>
       )}
 
+      {/* O'QUVCHI QO'SHISH MODALI */}
       {modalType === 'student' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
@@ -933,7 +957,7 @@ function App() {
               />
               <input 
                 type="text"
-                placeholder="Telefon Raqami (+998...)"
+                placeholder="Telefon Raqami"
                 value={modalData.phone || ''}
                 onChange={e => setModalData({...modalData, phone: e.target.value})}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"

@@ -2,29 +2,60 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Apex Chess Academy - CRM & Live Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Chess Coach UZ — Shaxmat CRM Platformasi</title>
   
-  <!-- Tailwind CSS -->
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Tailwind CSS (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- React 18 & ReactDOM -->
+
+  <!-- React & ReactDOM -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   
-  <!-- Babel -->
+  <!-- Babel (JSX uchun) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
-  <!-- Chess.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
-  <!-- Maxsus stillar fayli -->
-  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Sensor harakatlarida ekranning qimirlab ketishini to'xtatish */
+    body {
+      touch-action: pan-y;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    
+    /* Scrollbarni chiroyli qilish */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #10b981;
+    }
+  </style>
 </head>
-<body class="bg-slate-950 text-slate-100 antialiased min-h-screen">
+<body class="bg-slate-950 text-slate-100 antialiased overflow-x-hidden">
+  
   <div id="root"></div>
 
-  <!-- Asosiy JavaScript / React mantiq fayli -->
+  <!-- Telegram WebApp moslashuvi -->
+  <script>
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.ready();
+      window.Telegram.WebApp.expand();
+    }
+  </script>
+
+  <!-- Asosiy JS ilovasi -->
   <script type="text/babel" src="app.js"></script>
 </body>
 </html>

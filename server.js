@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { Telegraf, Markup, session } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 
 const app = express();
@@ -11,9 +11,6 @@ const BOT_TOKEN = '8793505919:AAHeDxho7-sjluGN8u4UyO_CtH-ZlfNfGdw';
 const bot = new Telegraf(BOT_TOKEN);
 
 app.use(express.json());
-app.use(session());
-
-// Statik frontend fayllar
 app.use(express.static(__dirname));
 
 // Render URL manzili
@@ -23,6 +20,7 @@ const SERVER_URL = process.env.RENDER_EXTERNAL_URL || 'https://chess-crm.onrende
 const superAdmins = ['jovliyev_bekzod'];
 let botUsers = new Set();
 let subAdmins = [];
+let userState = {}; // Sessiya o'rniga xotirada tezkor saqlash
 
 let botSettings = {
   welcomeText: `♞ *Assalomu alaykum!*\n\n*Chess Coach UZ* tizimiga xush kelibsiz.\n\nQuyidagi bo'limlardan birini tanlang yoki lichess o'yin linkingizni tahlil uchun yuboring:`,
@@ -106,28 +104,28 @@ function openAdminPanel(ctx) {
 bot.action('admin_broadcast', (ctx) => {
   if (!isAdmin(ctx)) return;
   ctx.answerCbQuery();
-  ctx.session = { step: 'waiting_for_broadcast' };
+  userState[ctx.from.id] = 'waiting_for_broadcast';
   ctx.reply("📢 Reklama xabaringizni yozing (Bekor qilish uchun /cancel):");
 });
 
 bot.action('admin_edit_welcome', (ctx) => {
   if (!isAdmin(ctx)) return;
   ctx.answerCbQuery();
-  ctx.session = { step: 'waiting_for_welcome' };
+  userState[ctx.from.id] = 'waiting_for_welcome';
   ctx.reply("✏️ Yangi Start xabari matnini yuboring:");
 });
 
 bot.action('admin_edit_help', (ctx) => {
   if (!isAdmin(ctx)) return;
   ctx.answerCbQuery();
-  ctx.session = { step: 'waiting_for_help' };
+  userState[ctx.from.id] = 'waiting_for_help';
   ctx.reply("✏️ Yangi Yordam matnini yuboring:");
 });
 
 bot.action('admin_add_admin', (ctx) => {
   if (!isAdmin(ctx)) return;
   ctx.answerCbQuery();
-  ctx.session = { step: 'waiting_for_admin_user' };
+  userState[ctx.from.id] = 'waiting_for_admin_user';
   ctx.reply("➕ Yangi admin Telegram username'ini yuboring (@ siz):");
 });
 
@@ -158,7 +156,7 @@ bot.action('back_to_main', (ctx) => {
 });
 
 bot.command('cancel', (ctx) => {
-  ctx.session = null;
+  delete userState[ctx.from.id];
   ctx.reply("Bekor qilindi.", Markup.inlineKeyboard([[Markup.button.callback("👑 Admin Panel", "admin_panel")]]));
 });
 
@@ -167,15 +165,15 @@ bot.action('help_info', (ctx) => {
   ctx.reply(botSettings.helpText, { parse_mode: 'Markdown' });
 });
 
-// Xabarlar monitoringi
+// Xabarlar va Admin holatlari
 bot.on('text', async (ctx, next) => {
   if (ctx.from?.id) botUsers.add(ctx.from.id);
-  const step = ctx.session?.step;
+  const state = userState[ctx.from?.id];
 
   if (ctx.message.text.includes('lichess.org/')) return next();
 
-  if (step === 'waiting_for_broadcast' && isAdmin(ctx)) {
-    ctx.session = null;
+  if (state === 'waiting_for_broadcast' && isAdmin(ctx)) {
+    delete userState[ctx.from.id];
     const msg = ctx.message.text;
     let count = 0;
     for (let userId of botUsers) {
@@ -187,22 +185,22 @@ bot.on('text', async (ctx, next) => {
     return ctx.reply(`✅ Xabar ${count} ta foydalanuvchiga yuborildi!`, Markup.inlineKeyboard([[Markup.button.callback("👑 Admin Panel", "admin_panel")]]));
   }
 
-  if (step === 'waiting_for_welcome' && isAdmin(ctx)) {
+  if (state === 'waiting_for_welcome' && isAdmin(ctx)) {
     botSettings.welcomeText = ctx.message.text;
-    ctx.session = null;
+    delete userState[ctx.from.id];
     return ctx.reply("✅ Start matni yangilandi!", Markup.inlineKeyboard([[Markup.button.callback("👑 Admin Panel", "admin_panel")]]));
   }
 
-  if (step === 'waiting_for_help' && isAdmin(ctx)) {
+  if (state === 'waiting_for_help' && isAdmin(ctx)) {
     botSettings.helpText = ctx.message.text;
-    ctx.session = null;
+    delete userState[ctx.from.id];
     return ctx.reply("✅ Yordam matni yangilandi!", Markup.inlineKeyboard([[Markup.button.callback("👑 Admin Panel", "admin_panel")]]));
   }
 
-  if (step === 'waiting_for_admin_user' && isAdmin(ctx)) {
+  if (state === 'waiting_for_admin_user' && isAdmin(ctx)) {
     const newAdmin = ctx.message.text.replace('@', '').toLowerCase().trim();
     if (!subAdmins.includes(newAdmin)) subAdmins.push(newAdmin);
-    ctx.session = null;
+    delete userState[ctx.from.id];
     return ctx.reply(`✅ @${newAdmin} admin qilindi!`, Markup.inlineKeyboard([[Markup.button.callback("👑 Admin Panel", "admin_panel")]]));
   }
 
@@ -241,25 +239,23 @@ bot.hears(/lichess\.org\/([a-zA-Z0-9]{8,12})/, async (ctx) => {
   }
 });
 
-// WEBHOOK INTEGRATSIYASI
-const WEBHOOK_PATH = `/bot${BOT_TOKEN}`;
-app.use(bot.webhookCallback(WEBHOOK_PATH));
+// WEBHOOK YO'LI (To'g'ridan-to'g'ri Express orqali)
+const SECRET_PATH = `/telegraf-webhook-${BOT_TOKEN.slice(-10)}`;
+app.use(bot.webhookCallback(SECRET_PATH));
 
-// Barcha sahifalarga index.html ni berish
+// WebApp sayti
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Serverni tinglash
+// Serverni ishga tushirish
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`🚀 Server 0.0.0.0:${PORT} da to'liq ishlamoqda`);
+  console.log(`🚀 Web Server ${PORT}-portda faol!`);
   try {
-    await bot.telegram.setWebhook(`${SERVER_URL}${WEBHOOK_PATH}`);
-    console.log(`✅ Webhook muvaffaqiyatli ulandi!`);
-  } catch (err) {
-    console.error("Webhook ulanishida xatolik:", err.message);
+    await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    await bot.telegram.setWebhook(`${SERVER_URL}${SECRET_PATH}`);
+    console.log(`✅ Toza Webhook o'rnatildi: ${SERVER_URL}${SECRET_PATH}`);
+  } catch (e) {
+    console.error("Webhook xatolik:", e.message);
   }
 });
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));

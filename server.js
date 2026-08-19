@@ -4,30 +4,29 @@ const { Telegraf, Markup, session } = require('telegraf');
 const axios = require('axios');
 
 const app = express();
-// Render beradigan portni to'g'ri qabul qilish
 const PORT = process.env.PORT || 10000;
 
 // Bot Tokeni
 const BOT_TOKEN = '8793505919:AAHeDxho7-sjluGN8u4UyO_CtH-ZlfNfGdw';
 const bot = new Telegraf(BOT_TOKEN);
 
-app.use(session());
 app.use(express.json());
+app.use(session());
 
-// Statik frontend fayllari (index.html, app.js, style.css)
+// Statik frontend fayllar
 app.use(express.static(__dirname));
 
 // Render URL manzili
-let SERVER_URL = process.env.RENDER_EXTERNAL_URL || 'https://chess-crm.onrender.com';
+const SERVER_URL = process.env.RENDER_EXTERNAL_URL || 'https://chess-crm.onrender.com';
 
-// --- ADMIN VA BAZA SOZLAMALARI --- //
+// --- ADMIN SOZLAMALARI --- //
 const superAdmins = ['jovliyev_bekzod'];
 let botUsers = new Set();
 let subAdmins = [];
 
 let botSettings = {
   welcomeText: `♞ *Assalomu alaykum!*\n\n*Chess Coach UZ* tizimiga xush kelibsiz.\n\nQuyidagi bo'limlardan birini tanlang yoki lichess o'yin linkingizni tahlil uchun yuboring:`,
-  helpText: `♞ *Chess Coach UZ Qo'llanma*\n\n1. Lichess partiya havolasini yuborib AI tahlil oling.\n2. CRM boshqaruviga kirish uchun tugmani bosing.\n3. Savollar bo'lsa @jovliyev_bekzod ga murojaat qiling.`
+  helpText: `♞ *Chess Coach UZ Qo'llanma*\n\n1. Lichess o'yin havolasini yuborib AI tahlil oling.\n2. CRM tizimiga kirish uchun tugmani bosing.\n3. Savollar bo'lsa @jovliyev_bekzod ga murojaat qiling.`
 };
 
 function isAdmin(ctx) {
@@ -35,7 +34,7 @@ function isAdmin(ctx) {
   return superAdmins.includes(user) || subAdmins.includes(user);
 }
 
-// --- TELEGRAM BOT BUYRUQLARI --- //
+// --- /start BUYRUG'I --- //
 bot.start(async (ctx) => {
   if (ctx.from?.id) botUsers.add(ctx.from.id);
 
@@ -60,12 +59,13 @@ bot.start(async (ctx) => {
     buttons.push([Markup.button.callback("👑 Super Admin Paneli", "admin_panel")]);
   }
 
-  ctx.reply(botSettings.welcomeText, {
+  return ctx.reply(botSettings.welcomeText, {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard(buttons)
   });
 });
 
+// --- ADMIN PANEL --- //
 bot.command('admin', (ctx) => {
   if (!isAdmin(ctx)) return ctx.reply("❌ Kechirasiz, siz Super Admin emassiz!");
   openAdminPanel(ctx);
@@ -92,8 +92,8 @@ function openAdminPanel(ctx) {
     [Markup.button.callback("✏️ Start Matnini O'zgartirish", "admin_edit_welcome")],
     [Markup.button.callback("✏️ Yordam Matnini O'zgartirish", "admin_edit_help")],
     [Markup.button.callback("➕ Yangi Admin Qo'shish", "admin_add_admin")],
-    [Markup.button.callback("🗑 Adminlar Ro'yxati / O'chirish", "admin_list_admins")],
-    [Markup.button.callback("◀️ Menyuga qaytish", "back_to_main")]
+    [Markup.button.callback("🗑 Adminlar Ro'yxati / Tozalash", "admin_list_admins")],
+    [Markup.button.callback("◀️ Yopish", "back_to_main")]
   ]);
 
   if (ctx.callbackQuery) {
@@ -107,7 +107,7 @@ bot.action('admin_broadcast', (ctx) => {
   if (!isAdmin(ctx)) return;
   ctx.answerCbQuery();
   ctx.session = { step: 'waiting_for_broadcast' };
-  ctx.reply("📢 Reklama matnini yuboring (Bekor qilish uchun /cancel):");
+  ctx.reply("📢 Reklama xabaringizni yozing (Bekor qilish uchun /cancel):");
 });
 
 bot.action('admin_edit_welcome', (ctx) => {
@@ -162,6 +162,12 @@ bot.command('cancel', (ctx) => {
   ctx.reply("Bekor qilindi.", Markup.inlineKeyboard([[Markup.button.callback("👑 Admin Panel", "admin_panel")]]));
 });
 
+bot.action('help_info', (ctx) => {
+  ctx.answerCbQuery();
+  ctx.reply(botSettings.helpText, { parse_mode: 'Markdown' });
+});
+
+// Xabarlar monitoringi
 bot.on('text', async (ctx, next) => {
   if (ctx.from?.id) botUsers.add(ctx.from.id);
   const step = ctx.session?.step;
@@ -207,7 +213,7 @@ bot.on('text', async (ctx, next) => {
 bot.hears(/lichess\.org\/([a-zA-Z0-9]{8,12})/, async (ctx) => {
   const match = ctx.match[1];
   const gameId = match.substring(0, 8);
-  await ctx.reply("🧠 *Chess Coach AI o'yinni tahlil qilmoqda...*", { parse_mode: 'Markdown' });
+  await ctx.reply("🧠 *Chess Coach AI tahlil qilmoqda...*", { parse_mode: 'Markdown' });
 
   try {
     const res = await axios.get(`https://lichess.org/game/export/${gameId}`, {
@@ -235,22 +241,24 @@ bot.hears(/lichess\.org\/([a-zA-Z0-9]{8,12})/, async (ctx) => {
   }
 });
 
-bot.action('help_info', (ctx) => {
-  ctx.answerCbQuery();
-  ctx.reply(botSettings.helpText, { parse_mode: 'Markdown' });
-});
+// WEBHOOK INTEGRATSIYASI
+const WEBHOOK_PATH = `/bot${BOT_TOKEN}`;
+app.use(bot.webhookCallback(WEBHOOK_PATH));
 
-// Botni ishga tushirish
-bot.launch().catch(err => console.error("Bot start error:", err));
-
-// Barcha sahifalarga index.html ni berish (502 xatosini yo'qotadi)
+// Barcha sahifalarga index.html ni berish
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Express serverni tinglash
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Web Server 0.0.0.0:${PORT} da to'liq ishlamoqda`);
+// Serverni tinglash
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`🚀 Server 0.0.0.0:${PORT} da to'liq ishlamoqda`);
+  try {
+    await bot.telegram.setWebhook(`${SERVER_URL}${WEBHOOK_PATH}`);
+    console.log(`✅ Webhook muvaffaqiyatli ulandi!`);
+  } catch (err) {
+    console.error("Webhook ulanishida xatolik:", err.message);
+  }
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));

@@ -4,10 +4,11 @@ const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 
 const app = express();
-
 const PORT = process.env.PORT || 10000;
-const SERVER_URL =
-  process.env.RENDER_EXTERNAL_URL || 'https://chess-crm.onrender.com';
+
+// ==================================================
+// BOT TOKEN — FAQAT RENDER ENVIRONMENT'DAN
+// ==================================================
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
@@ -16,116 +17,53 @@ if (!BOT_TOKEN) {
   process.exit(1);
 }
 
-const SUPER_ADMIN_USERNAME =
-  (process.env.SUPER_ADMIN_USERNAME || 'jovliyev_bekzod')
-    .replace('@', '')
-    .toLowerCase();
-
 const bot = new Telegraf(BOT_TOKEN);
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 
-/*
-==================================================
-CHESS COACH UZ
-TELEGRAM BOT + WEB SERVER
-1-BOSQICH
-==================================================
-*/
+// ==================================================
+// RENDER URL
+// ==================================================
+
+const SERVER_URL =
+  process.env.RENDER_EXTERNAL_URL ||
+  'https://chess-crm.onrender.com';
 
 // ==================================================
 // ADMIN SOZLAMALARI
 // ==================================================
 
-const superAdmins = [SUPER_ADMIN_USERNAME];
+const superAdmins = ['jovliyev_bekzod'];
 
-// Hozircha vaqtinchalik xotirada.
-// Keyingi bosqichda PostgreSQL bazasiga o'tkazamiz.
-const botUsers = new Set();
-const subAdmins = new Set();
-const userState = new Map();
+let botUsers = new Set();
+let subAdmins = [];
+let userState = {};
 
-const botSettings = {
+let botSettings = {
   welcomeText:
     `♞ *Assalomu alaykum!*\n\n` +
     `*Chess Coach UZ* tizimiga xush kelibsiz.\n\n` +
-    `Quyidagi bo‘limlardan birini tanlang yoki Lichess o‘yin linkingizni ` +
-    `tahlil uchun yuboring:`,
+    `Quyidagi bo'limlardan birini tanlang yoki lichess o'yin linkingizni tahlil uchun yuboring:`,
 
   helpText:
-    `♞ *Chess Coach UZ Qo‘llanma*\n\n` +
-    `1. Lichess o‘yin havolasini yuboring — hozircha asosiy ma’lumotlar olinadi.\n` +
+    `♞ *Chess Coach UZ Qo'llanma*\n\n` +
+    `1. Lichess o'yin havolasini yuborib AI tahlil oling.\n` +
     `2. CRM tizimiga kirish uchun tugmani bosing.\n` +
-    `3. O‘quvchi kabineti uchun Student App tugmasidan foydalaning.\n` +
-    `4. Savollar bo‘lsa Super Admin bilan bog‘laning.`
+    `3. Savollar bo'lsa @jovliyev_bekzod ga murojaat qiling.`
 };
 
 // ==================================================
-// YORDAMCHI FUNKSIYALAR
+// ADMIN TEKSHIRISH
 // ==================================================
 
-function normalizeUsername(username) {
-  return String(username || '')
-    .replace('@', '')
-    .trim()
-    .toLowerCase();
-}
-
 function isAdmin(ctx) {
-  const username = normalizeUsername(ctx.from?.username);
+  const user = ctx.from?.username?.toLowerCase();
 
   return (
-    superAdmins.includes(username) ||
-    subAdmins.has(username)
+    superAdmins.includes(user) ||
+    subAdmins.includes(user)
   );
-}
-
-function isSuperAdmin(ctx) {
-  const username = normalizeUsername(ctx.from?.username);
-
-  return superAdmins.includes(username);
-}
-
-function addBotUser(ctx) {
-  if (ctx.from?.id) {
-    botUsers.add(ctx.from.id);
-  }
-}
-
-function getMainKeyboard(ctx) {
-  const buttons = [
-    [
-      Markup.button.webApp(
-        '👨‍🏫 CRM Boshqaruv Paneli',
-        SERVER_URL
-      )
-    ],
-    [
-      Markup.button.webApp(
-        '🎓 Shogird Kabineti (Student App)',
-        `${SERVER_URL}?mode=student`
-      )
-    ],
-    [
-      Markup.button.callback(
-        'ℹ️ Qo‘llanma',
-        'help_info'
-      )
-    ]
-  ];
-
-  if (isAdmin(ctx)) {
-    buttons.push([
-      Markup.button.callback(
-        '👑 Super Admin Paneli',
-        'admin_panel'
-      )
-    ]);
-  }
-
-  return Markup.inlineKeyboard(buttons);
 }
 
 // ==================================================
@@ -133,560 +71,652 @@ function getMainKeyboard(ctx) {
 // ==================================================
 
 bot.start(async (ctx) => {
-  addBotUser(ctx);
+
+  if (ctx.from?.id) {
+    botUsers.add(ctx.from.id);
+  }
 
   try {
+
     await ctx.telegram.setChatMenuButton({
       chatId: ctx.chat.id,
+
       menuButton: {
         type: 'web_app',
         text: '📱 CRM-ni Ochish',
+
         web_app: {
           url: SERVER_URL
         }
       }
     });
-  } catch (error) {
+
+  } catch (e) {
+
     console.error(
-      'Menu button o‘rnatilmadi:',
-      error.message
+      'Menu button xatosi:',
+      e.message
     );
+
+  }
+
+  const buttons = [
+
+    [
+      Markup.button.webApp(
+        "👨‍🏫 CRM Boshqaruv Paneli",
+        SERVER_URL
+      )
+    ],
+
+    [
+      Markup.button.webApp(
+        "🎓 Shogird Kabineti (Student App)",
+        `${SERVER_URL}?mode=student`
+      )
+    ],
+
+    [
+      Markup.button.callback(
+        "ℹ️ Qo'llanma",
+        "help_info"
+      )
+    ]
+
+  ];
+
+  if (isAdmin(ctx)) {
+
+    buttons.push([
+      Markup.button.callback(
+        "👑 Super Admin Paneli",
+        "admin_panel"
+      )
+    ]);
+
   }
 
   return ctx.reply(
     botSettings.welcomeText,
     {
       parse_mode: 'Markdown',
-      ...getMainKeyboard(ctx)
+      ...Markup.inlineKeyboard(buttons)
     }
   );
+
 });
 
 // ==================================================
-// /APP
+// ADMIN BUYRUG'I
 // ==================================================
 
-bot.command('app', async (ctx) => {
-  addBotUser(ctx);
+bot.command('admin', (ctx) => {
 
-  await ctx.reply(
-    '📱 Chess Coach UZ platformasini ochish uchun tugmani bosing:',
-    Markup.inlineKeyboard([
-      [
-        Markup.button.webApp(
-          '♟ Chess Coach UZ-ni Ochish',
-          SERVER_URL
-        )
-      ]
-    ])
-  );
-});
+  if (!isAdmin(ctx)) {
 
-// ==================================================
-// /HELP
-// ==================================================
+    return ctx.reply(
+      "❌ Kechirasiz, siz Super Admin emassiz!"
+    );
 
-bot.command('help', async (ctx) => {
-  addBotUser(ctx);
+  }
 
-  await ctx.reply(
-    botSettings.helpText,
-    { parse_mode: 'Markdown' }
-  );
+  openAdminPanel(ctx);
+
 });
 
 // ==================================================
 // ADMIN PANEL
 // ==================================================
 
-bot.command('admin', async (ctx) => {
-  addBotUser(ctx);
+bot.action('admin_panel', (ctx) => {
 
   if (!isAdmin(ctx)) {
-    return ctx.reply(
-      '❌ Kechirasiz, sizda Admin huquqi yo‘q.'
-    );
-  }
 
-  return openAdminPanel(ctx);
-});
-
-bot.action('admin_panel', async (ctx) => {
-  if (!isAdmin(ctx)) {
     return ctx.answerCbQuery(
-      'Ruxsat yo‘q!',
-      { show_alert: true }
+      "Ruxsat yo'q!",
+      {
+        show_alert: true
+      }
     );
+
   }
 
-  await ctx.answerCbQuery();
+  ctx.answerCbQuery();
 
-  return openAdminPanel(ctx);
+  openAdminPanel(ctx);
+
 });
 
-async function openAdminPanel(ctx) {
+function openAdminPanel(ctx) {
+
   const panelText =
+
     `👑 *SUPER ADMIN BOSHQARUV PANELI*\n` +
+
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `👤 *Bosh Admin:* @${SUPER_ADMIN_USERNAME}\n` +
-    `👥 *Bot foydalanuvchilari:* ${botUsers.size} ta\n` +
-    `🛡 *Qo‘shimcha Adminlar:* ${subAdmins.size} ta\n` +
+
+    `👤 *Bosh Admin:* @jovliyev_bekzod\n` +
+
+    `👥 *Jami Foydalanuvchilar:* ${botUsers.size} ta\n` +
+
+    `🛡 *Qo'shimcha Adminlar:* ${subAdmins.length} ta\n` +
+
     `━━━━━━━━━━━━━━━━━━━━\n` +
+
     `Kerakli boshqaruv amalini tanlang:`;
 
   const keyboard = Markup.inlineKeyboard([
+
     [
       Markup.button.callback(
-        '📢 Hammaga Xabar Yuborish',
-        'admin_broadcast'
+        "📢 Hammaga Reklama / Xabar Yuborish",
+        "admin_broadcast"
       )
     ],
+
     [
       Markup.button.callback(
-        '✏️ Start Matnini O‘zgartirish',
-        'admin_edit_welcome'
+        "✏️ Start Matnini O'zgartirish",
+        "admin_edit_welcome"
       )
     ],
+
     [
       Markup.button.callback(
-        '✏️ Yordam Matnini O‘zgartirish',
-        'admin_edit_help'
+        "✏️ Yordam Matnini O'zgartirish",
+        "admin_edit_help"
       )
     ],
+
     [
       Markup.button.callback(
-        '➕ Yangi Admin Qo‘shish',
-        'admin_add_admin'
+        "➕ Yangi Admin Qo'shish",
+        "admin_add_admin"
       )
     ],
+
     [
       Markup.button.callback(
-        '🗑 Adminlar Ro‘yxati',
-        'admin_list_admins'
+        "🗑 Adminlar Ro'yxati / Tozalash",
+        "admin_list_admins"
       )
     ],
+
     [
       Markup.button.callback(
-        '◀️ Yopish',
-        'back_to_main'
+        "◀️ Yopish",
+        "back_to_main"
       )
     ]
+
   ]);
 
-  try {
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(
-        panelText,
-        {
-          parse_mode: 'Markdown',
-          ...keyboard
-        }
-      );
-    } else {
-      await ctx.reply(
-        panelText,
-        {
-          parse_mode: 'Markdown',
-          ...keyboard
-        }
-      );
-    }
-  } catch (error) {
-    console.error(
-      'Admin panel xatosi:',
-      error.message
+  if (ctx.callbackQuery) {
+
+    ctx.editMessageText(
+      panelText,
+      {
+        parse_mode: 'Markdown',
+        ...keyboard
+      }
     );
+
+  } else {
+
+    ctx.reply(
+      panelText,
+      {
+        parse_mode: 'Markdown',
+        ...keyboard
+      }
+    );
+
   }
+
 }
 
 // ==================================================
 // BROADCAST
 // ==================================================
 
-bot.action('admin_broadcast', async (ctx) => {
+bot.action('admin_broadcast', (ctx) => {
+
   if (!isAdmin(ctx)) return;
 
-  await ctx.answerCbQuery();
+  ctx.answerCbQuery();
 
-  userState.set(
-    ctx.from.id,
-    'waiting_for_broadcast'
+  userState[ctx.from.id] =
+    'waiting_for_broadcast';
+
+  ctx.reply(
+    "📢 Reklama xabaringizni yozing (Bekor qilish uchun /cancel):"
   );
 
-  await ctx.reply(
-    '📢 Reklama yoki rasmiy xabar matnini yuboring.\n\n' +
-    'Bekor qilish uchun /cancel bosing.'
-  );
 });
 
 // ==================================================
-// START MATNINI O‘ZGARTIRISH
+// START MATNINI O'ZGARTIRISH
 // ==================================================
 
-bot.action('admin_edit_welcome', async (ctx) => {
+bot.action('admin_edit_welcome', (ctx) => {
+
   if (!isAdmin(ctx)) return;
 
-  await ctx.answerCbQuery();
+  ctx.answerCbQuery();
 
-  userState.set(
-    ctx.from.id,
-    'waiting_for_welcome'
+  userState[ctx.from.id] =
+    'waiting_for_welcome';
+
+  ctx.reply(
+    "✏️ Yangi Start xabari matnini yuboring:"
   );
 
-  await ctx.reply(
-    '✏️ Yangi Start xabarini yuboring:'
-  );
 });
 
 // ==================================================
-// HELP MATNINI O‘ZGARTIRISH
+// HELP MATNINI O'ZGARTIRISH
 // ==================================================
 
-bot.action('admin_edit_help', async (ctx) => {
+bot.action('admin_edit_help', (ctx) => {
+
   if (!isAdmin(ctx)) return;
 
-  await ctx.answerCbQuery();
+  ctx.answerCbQuery();
 
-  userState.set(
-    ctx.from.id,
-    'waiting_for_help'
+  userState[ctx.from.id] =
+    'waiting_for_help';
+
+  ctx.reply(
+    "✏️ Yangi Yordam matnini yuboring:"
   );
 
-  await ctx.reply(
-    '✏️ Yangi Yordam matnini yuboring:'
-  );
 });
 
 // ==================================================
-// YANGI ADMIN QO‘SHISH
+// YANGI ADMIN
 // ==================================================
 
-bot.action('admin_add_admin', async (ctx) => {
-  if (!isSuperAdmin(ctx)) {
-    return ctx.answerCbQuery(
-      'Faqat Super Admin bu amalni bajarishi mumkin!',
-      { show_alert: true }
-    );
-  }
+bot.action('admin_add_admin', (ctx) => {
 
-  await ctx.answerCbQuery();
+  if (!isAdmin(ctx)) return;
 
-  userState.set(
-    ctx.from.id,
-    'waiting_for_admin_user'
+  ctx.answerCbQuery();
+
+  userState[ctx.from.id] =
+    'waiting_for_admin_user';
+
+  ctx.reply(
+    "➕ Yangi admin Telegram username'ini yuboring (@ siz):"
   );
 
-  await ctx.reply(
-    '➕ Yangi adminning Telegram usernameini yuboring.\n\n' +
-    'Masalan:\n' +
-    '@username\n\n' +
-    'Bekor qilish uchun /cancel bosing.'
-  );
 });
 
 // ==================================================
-// ADMINLAR RO‘YXATI
+// ADMINLAR RO'YXATI
 // ==================================================
 
-bot.action('admin_list_admins', async (ctx) => {
+bot.action('admin_list_admins', (ctx) => {
+
   if (!isAdmin(ctx)) return;
 
-  await ctx.answerCbQuery();
+  ctx.answerCbQuery();
 
   let list =
-    `🛡 *Adminlar ro‘yxati*\n\n` +
-    `👑 Super Admin: @${SUPER_ADMIN_USERNAME}\n`;
+    `🛡 *Adminlar:* @jovliyev_bekzod\n`;
 
-  if (subAdmins.size === 0) {
-    list += '\nQo‘shimcha adminlar yo‘q.';
-  } else {
-    let index = 1;
+  subAdmins.forEach((adm, i) => {
 
-    for (const admin of subAdmins) {
-      list += `${index}. @${admin}\n`;
-      index++;
-    }
-  }
+    list += `${i + 1}. @${adm}\n`;
 
-  await ctx.reply(
+  });
+
+  ctx.reply(
     list,
     {
       parse_mode: 'Markdown',
+
       ...Markup.inlineKeyboard([
+
         [
           Markup.button.callback(
-            '🗑 Qo‘shimcha Adminlarni Tozalash',
-            'admin_clear_admins'
+            "🗑 Adminlarni Tozalash",
+            "admin_clear_admins"
           )
         ],
+
         [
           Markup.button.callback(
-            '◀️ Orqaga',
-            'admin_panel'
+            "◀️ Orqaga",
+            "admin_panel"
           )
         ]
+
       ])
     }
   );
+
 });
 
 // ==================================================
 // ADMINLARNI TOZALASH
 // ==================================================
 
-bot.action('admin_clear_admins', async (ctx) => {
-  if (!isSuperAdmin(ctx)) {
-    return ctx.answerCbQuery(
-      'Faqat Super Admin!',
-      { show_alert: true }
-    );
-  }
+bot.action('admin_clear_admins', (ctx) => {
 
-  subAdmins.clear();
+  if (!isAdmin(ctx)) return;
 
-  await ctx.answerCbQuery(
-    'Qo‘shimcha adminlar tozalandi!'
+  subAdmins = [];
+
+  ctx.answerCbQuery(
+    "Adminlar tozalandi!"
   );
 
-  return openAdminPanel(ctx);
+  openAdminPanel(ctx);
+
 });
 
 // ==================================================
-// ORQAGA
+// PANELNI YOPISH
 // ==================================================
 
-bot.action('back_to_main', async (ctx) => {
-  await ctx.answerCbQuery();
+bot.action('back_to_main', (ctx) => {
 
-  try {
-    await ctx.deleteMessage();
-  } catch (error) {
-    console.error(
-      'Xabarni o‘chirishda xatolik:',
-      error.message
-    );
-  }
+  ctx.answerCbQuery();
+
+  ctx.deleteMessage();
+
 });
 
 // ==================================================
 // /CANCEL
 // ==================================================
 
-bot.command('cancel', async (ctx) => {
-  userState.delete(ctx.from.id);
+bot.command('cancel', (ctx) => {
 
-  await ctx.reply(
-    '✅ Amal bekor qilindi.',
+  delete userState[ctx.from.id];
+
+  ctx.reply(
+    "Bekor qilindi.",
+
     Markup.inlineKeyboard([
+
       [
         Markup.button.callback(
-          '👑 Admin Panel',
-          'admin_panel'
+          "👑 Admin Panel",
+          "admin_panel"
         )
       ]
+
     ])
   );
+
 });
 
 // ==================================================
-// HELP BUTTON
+// HELP
 // ==================================================
 
-bot.action('help_info', async (ctx) => {
-  addBotUser(ctx);
+bot.action('help_info', (ctx) => {
 
-  await ctx.answerCbQuery();
+  ctx.answerCbQuery();
 
-  await ctx.reply(
+  ctx.reply(
     botSettings.helpText,
-    { parse_mode: 'Markdown' }
+    {
+      parse_mode: 'Markdown'
+    }
   );
+
 });
 
 // ==================================================
-// ADMIN MATNLARI VA BROADCAST
+// XABARLAR VA ADMIN HOLATLARI
 // ==================================================
 
 bot.on('text', async (ctx, next) => {
-  addBotUser(ctx);
 
-  const userId = ctx.from?.id;
-  const text = ctx.message?.text || '';
-
-  const state = userState.get(userId);
-
-  // Lichess link bo‘lsa, keyingi handlerga beramiz
-  if (/lichess\.org\//i.test(text)) {
-    return next();
+  if (ctx.from?.id) {
+    botUsers.add(ctx.from.id);
   }
 
-  // -----------------------------------------------
+  const state =
+    userState[ctx.from?.id];
+
+  // Lichess link bo'lsa keyingi handlerga o'tadi
+  if (
+    ctx.message.text.includes(
+      'lichess.org/'
+    )
+  ) {
+
+    return next();
+
+  }
+
+  // ==================================================
   // BROADCAST
-  // -----------------------------------------------
+  // ==================================================
 
   if (
     state === 'waiting_for_broadcast' &&
     isAdmin(ctx)
   ) {
-    userState.delete(userId);
+
+    delete userState[ctx.from.id];
+
+    const msg =
+      ctx.message.text;
 
     let count = 0;
 
-    for (const targetUserId of botUsers) {
+    for (
+      let userId of botUsers
+    ) {
+
       try {
+
         await ctx.telegram.sendMessage(
-          targetUserId,
-          `📢 *Chess Coach UZ — Rasmiy Xabar*\n\n${text}`,
-          { parse_mode: 'Markdown' }
+          userId,
+
+          `📢 *Rasmiy Xabar:*\n\n${msg}`,
+
+          {
+            parse_mode: 'Markdown'
+          }
         );
 
         count++;
-      } catch (error) {
-        // Foydalanuvchi botni bloklagan bo‘lishi mumkin.
-      }
+
+      } catch (e) {}
+
     }
 
     return ctx.reply(
+
       `✅ Xabar ${count} ta foydalanuvchiga yuborildi!`,
+
       Markup.inlineKeyboard([
+
         [
           Markup.button.callback(
-            '👑 Admin Panel',
-            'admin_panel'
+            "👑 Admin Panel",
+            "admin_panel"
           )
         ]
+
       ])
+
     );
+
   }
 
-  // -----------------------------------------------
-  // WELCOME TEXT
-  // -----------------------------------------------
+  // ==================================================
+  // WELCOME
+  // ==================================================
 
   if (
     state === 'waiting_for_welcome' &&
     isAdmin(ctx)
   ) {
-    botSettings.welcomeText = text;
-    userState.delete(userId);
+
+    botSettings.welcomeText =
+      ctx.message.text;
+
+    delete userState[ctx.from.id];
 
     return ctx.reply(
-      '✅ Start matni yangilandi!',
+
+      "✅ Start matni yangilandi!",
+
       Markup.inlineKeyboard([
+
         [
           Markup.button.callback(
-            '👑 Admin Panel',
-            'admin_panel'
+            "👑 Admin Panel",
+            "admin_panel"
           )
         ]
+
       ])
+
     );
+
   }
 
-  // -----------------------------------------------
-  // HELP TEXT
-  // -----------------------------------------------
+  // ==================================================
+  // HELP
+  // ==================================================
 
   if (
     state === 'waiting_for_help' &&
     isAdmin(ctx)
   ) {
-    botSettings.helpText = text;
-    userState.delete(userId);
+
+    botSettings.helpText =
+      ctx.message.text;
+
+    delete userState[ctx.from.id];
 
     return ctx.reply(
-      '✅ Yordam matni yangilandi!',
+
+      "✅ Yordam matni yangilandi!",
+
       Markup.inlineKeyboard([
+
         [
           Markup.button.callback(
-            '👑 Admin Panel',
-            'admin_panel'
+            "👑 Admin Panel",
+            "admin_panel"
           )
         ]
+
       ])
+
     );
+
   }
 
-  // -----------------------------------------------
-  // NEW ADMIN
-  // -----------------------------------------------
+  // ==================================================
+  // YANGI ADMIN
+  // ==================================================
 
   if (
     state === 'waiting_for_admin_user' &&
-    isSuperAdmin(ctx)
+    isAdmin(ctx)
   ) {
-    const newAdmin = normalizeUsername(text);
 
-    if (!newAdmin) {
-      return ctx.reply(
-        '❌ Username noto‘g‘ri. Qaytadan yuboring.'
-      );
-    }
+    const newAdmin =
+      ctx.message.text
+        .replace('@', '')
+        .toLowerCase()
+        .trim();
 
     if (
-      newAdmin === SUPER_ADMIN_USERNAME
+      !subAdmins.includes(
+        newAdmin
+      )
     ) {
-      userState.delete(userId);
 
-      return ctx.reply(
-        'ℹ️ Bu foydalanuvchi allaqachon Super Admin.'
+      subAdmins.push(
+        newAdmin
       );
+
     }
 
-    subAdmins.add(newAdmin);
-    userState.delete(userId);
+    delete userState[ctx.from.id];
 
     return ctx.reply(
+
       `✅ @${newAdmin} admin qilindi!`,
+
       Markup.inlineKeyboard([
+
         [
           Markup.button.callback(
-            '👑 Admin Panel',
-            'admin_panel'
+            "👑 Admin Panel",
+            "admin_panel"
           )
         ]
+
       ])
+
     );
+
   }
 
   return next();
+
 });
 
 // ==================================================
-// LICHESS O‘YIN TAHLILI
+// LICHESS TAHLILI
 // ==================================================
 
 bot.hears(
-  /https?:\/\/lichess\.org\/([a-zA-Z0-9]{8,12})/i,
+  /lichess\.org\/([a-zA-Z0-9]{8,12})/,
   async (ctx) => {
-    const fullId = ctx.match[1];
-    const gameId = fullId.substring(0, 8);
+
+    const match =
+      ctx.match[1];
+
+    const gameId =
+      match.substring(0, 8);
 
     await ctx.reply(
-      '🔍 *Lichess o‘yini topildi!*\n\n' +
-      'Hozircha o‘yin ma’lumotlari olinmoqda...',
-      { parse_mode: 'Markdown' }
+      "🧠 *Chess Coach AI tahlil qilmoqda...*",
+      {
+        parse_mode: 'Markdown'
+      }
     );
 
     try {
-      const response = await axios.get(
-        `https://lichess.org/game/export/${gameId}`,
-        {
-          params: {
-            moves: true,
-            tags: true,
-            clocks: false,
-            evals: true,
-            opening: true
-          },
-          headers: {
-            Accept: 'application/json'
-          },
-          timeout: 15000
-        }
-      );
 
-      const game = response.data;
+      const res =
+        await axios.get(
+
+          `https://lichess.org/game/export/${gameId}`,
+
+          {
+            params: {
+              moves: true,
+              tags: true,
+              clocks: false,
+              evals: true,
+              opening: true
+            },
+
+            headers: {
+              'Accept':
+                'application/json'
+            },
+
+            timeout: 15000
+          }
+
+        );
+
+      const game =
+        res.data;
 
       const whitePlayer =
         game.players?.white?.user?.name ||
@@ -696,80 +726,73 @@ bot.hears(
         game.players?.black?.user?.name ||
         'Qoralar';
 
-      const winner = game.winner
-        ? (
-            game.winner === 'white'
-              ? '⚪️ Oqlar g‘alaba qozondi'
-              : '⚫️ Qoralar g‘alaba qozondi'
-          )
-        : '🤝 Durang';
+      const winner =
+        game.winner
+          ? (
+              game.winner === 'white'
+                ? `⚪️ Oqlar yutdi`
+                : `⚫️ Qoralar yutdi`
+            )
+          : "🤝 Durang";
 
       const openingName =
         game.opening?.name ||
-        'Ochilish aniqlanmadi';
-
-      const openingEco =
-        game.opening?.eco
-          ? ` (${game.opening.eco})`
-          : '';
-
-      const moveCount = game.moves
-        ? game.moves.trim().split(/\s+/).length
-        : 0;
+        "Klassik ochilish";
 
       const report =
-        `📊 *CHESS COACH UZ — O‘YIN MA’LUMOTI*\n` +
+
+        `📊 *CHESS COACH AI TAHLILI*\n` +
+
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        `⚔️ *Partiya:* ${whitePlayer} 🆚 ${blackPlayer}\n` +
-        `🏆 *Natija:* ${winner}\n` +
-        `♟ *Yurishlar:* ${moveCount} ta\n` +
-        `🎯 *Debyut:* ${openingName}${openingEco}\n` +
+
+        `⚔️ ${whitePlayer} 🆚 ${blackPlayer}\n` +
+
+        `🏆 Natija: *${winner}*\n` +
+
+        `🎯 Debyut: *${openingName}*\n` +
+
         `━━━━━━━━━━━━━━━━━━━━\n\n` +
-        `🧠 *Eslatma:* haqiqiy chuqur AI/Stockfish tahlili ` +
-        `keyingi bosqichda qo‘shiladi.\n\n` +
-        `🔗 [Lichess-da ko‘rish](https://lichess.org/${gameId})`;
+
+        `🔗 [Lichess-da ochish](https://lichess.org/${gameId})`;
 
       await ctx.reply(
+
         report,
+
         {
           parse_mode: 'Markdown',
           disable_web_page_preview: true
         }
+
       );
-    } catch (error) {
+
+    } catch (err) {
+
       console.error(
         'Lichess API xatosi:',
-        error.message
+        err.message
       );
 
       await ctx.reply(
-        '❌ Lichess o‘yinini yuklab bo‘lmadi.\n\n' +
-        'Havola to‘g‘ri ekanini va o‘yin public ekanini tekshiring.'
+        "❌ O'yin ma'lumotlarini tahlil qilib bo'lmadi."
       );
+
     }
+
   }
 );
 
 // ==================================================
-// HEALTH CHECK
+// WEBHOOK
 // ==================================================
 
-app.get('/health', (req, res) => {
-  res.json({
-    ok: true,
-    service: 'Chess Coach UZ',
-    bot: 'running'
-  });
-});
-
-// ==================================================
-// TELEGRAM WEBHOOK
-// ==================================================
-
-const WEBHOOK_PATH = '/telegram/webhook/chess-coach-uz';
+const SECRET_PATH =
+  `/telegraf-webhook-${BOT_TOKEN.slice(-10)}`;
 
 app.use(
-  bot.webhookCallback(WEBHOOK_PATH)
+  bot.webhookCallback(
+    SECRET_PATH
+  )
 );
 
 // ==================================================
@@ -777,73 +800,51 @@ app.use(
 // ==================================================
 
 app.get('*', (req, res) => {
+
   res.sendFile(
-    path.join(__dirname, 'index.html')
+    path.join(
+      __dirname,
+      'index.html'
+    )
   );
+
 });
 
 // ==================================================
-// SERVERNI ISHGA TUSHIRISH
+// SERVER
 // ==================================================
 
 app.listen(
   PORT,
   '0.0.0.0',
   async () => {
+
     console.log(
-      `🚀 Chess Coach UZ serveri ${PORT}-portda ishga tushdi.`
+      `🚀 Web Server ${PORT}-portda faol!`
     );
 
     try {
+
       await bot.telegram.deleteWebhook({
         drop_pending_updates: true
       });
 
       await bot.telegram.setWebhook(
-        `${SERVER_URL}${WEBHOOK_PATH}`
+        `${SERVER_URL}${SECRET_PATH}`
       );
 
       console.log(
-        `✅ Telegram webhook o‘rnatildi: ${SERVER_URL}${WEBHOOK_PATH}`
+        `✅ Toza Webhook o'rnatildi: ${SERVER_URL}${SECRET_PATH}`
       );
 
-      console.log(
-        `👑 Super Admin: @${SUPER_ADMIN_USERNAME}`
-      );
+    } catch (e) {
 
-      console.log(
-        '🔐 BOT_TOKEN: Render Environment Variables orqali olinmoqda.'
-      );
-    } catch (error) {
       console.error(
-        '❌ Telegram webhook xatosi:',
-        error.message
+        "Webhook xatolik:",
+        e.message
       );
+
     }
+
   }
 );
-
-// ==================================================
-// XATOLARNI USHLASH
-// ==================================================
-
-bot.catch((error) => {
-  console.error(
-    '❌ Telegram bot xatosi:',
-    error
-  );
-});
-
-process.on('unhandledRejection', (error) => {
-  console.error(
-    '❌ Unhandled Promise Rejection:',
-    error
-  );
-});
-
-process.on('uncaughtException', (error) => {
-  console.error(
-    '❌ Uncaught Exception:',
-    error
-  );
-});

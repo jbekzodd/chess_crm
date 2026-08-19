@@ -1,979 +1,958 @@
-const { useState, useEffect, useRef } = React;
+// --- Chess Coach UZ Engine & Storage --- //
 
-const PIECE_SYMBOLS = {
-  'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚',
-  'P': '♙', 'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔'
+const DB_KEY = 'chess_coach_uz_master_db';
+
+const defaultDB = {
+  users: [
+    {
+      id: 'super_1',
+      username: 'bekzod_admin',
+      password: 'superpassword123',
+      name: 'Bekzod Javliev',
+      role: 'superadmin',
+      centerId: null,
+      online: true,
+      lastActive: new Date().toISOString()
+    }
+  ],
+  centers: [
+    {
+      id: 'center_1',
+      name: 'Markaziy Shaxmat Akademiyasi',
+      directorId: 'super_1'
+    }
+  ],
+  coaches: [],
+  groups: [],
+  students: [],
+  payments: [],
+  liveLessons: []
 };
 
+function getDB() {
+  const data = localStorage.getItem(DB_KEY);
+  if (!data) {
+    localStorage.setItem(DB_KEY, JSON.stringify(defaultDB));
+    return defaultDB;
+  }
+  return JSON.parse(data);
+}
+
+function saveDB(db) {
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+}
+
+// --- React Asosiy Tizimi --- //
+const { useState, useEffect, useRef } = React;
+
 function App() {
-  // 1. Foydalanuvchi va Kirish holatlari
-  const [currentUser, setCurrentUser] = useState(null);
-  const [authMode, setAuthMode] = useState('login');
-  const [usernameInput, setUsernameInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  const [coachNameInput, setCoachNameInput] = useState('');
-  const [authError, setAuthError] = useState('');
-
-  // 2. Navigatsiya va Sidebar (3 ta chiziqcha ochib-yopilishi)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
-
-  // 3. Markazlar tizimi
-  const [centers, setCenters] = useState(['Apex Chess Academy']);
-  const [currentCenter, setCurrentCenter] = useState('Apex Chess Academy');
-  const [showAddCenterModal, setShowAddCenterModal] = useState(false);
-  const [newCenterName, setNewCenterName] = useState('');
-
-  // 4. Ma'lumotlar bazasi
-  const [students, setStudents] = useState([]);
-  const [groups, setGroups] = useState(['Boshlangʻich - Toq kunlar', 'Havaskor - Juft kunlar', 'Individual']);
-  const [journalDate, setJournalDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedGroup, setSelectedGroup] = useState('Boshlangʻich - Toq kunlar');
-  const [selectedTopicNum, setSelectedTopicNum] = useState('');
-
-  // 5. Modallar
-  const [showAddStudentModal, setShowAddStudentModal] = useState(false);
-  const [showAddGroupModal, setShowAddGroupModal] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [deleteConfirmStudent, setDeleteConfirmStudent] = useState(null);
-
-  // 6. Shaxmat doskasi
-  const chessRef = useRef(new window.Chess());
-  const [boardState, setBoardState] = useState(chessRef.current.board());
-  const [selectedSquare, setSelectedSquare] = useState(null);
-  const [isFlipped, setIsFlipped] = useState(false);
-
-  // 7. Jonli dars va Arxiv
-  const [isRecording, setIsRecording] = useState(false);
-  const [activeStudentControl, setActiveStudentControl] = useState(null);
-  const [lessonNotes, setLessonNotes] = useState([]);
-
-  // Anketalar
-  const [studentForm, setStudentForm] = useState({
-    name: '', age: '', phone: '', parentPhone: '',
-    lichessUsername: '', initialRating: '',
-    group: 'Boshlangʻich - Toq kunlar',
-    initialDiagnosis: '', monthlyFee: '300000',
-    isPaid: false
+  const [db, setDb] = useState(getDB());
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('chess_coach_current_user');
+    return saved ? JSON.parse(saved) : null;
   });
 
-  // Tizimni yuklash
-  useEffect(() => {
-    const savedSession = localStorage.getItem('apex_active_coach');
-    if (savedSession) {
-      const coach = JSON.parse(savedSession);
-      setCurrentUser(coach);
-      loadAcademyData(coach.username);
-    }
-  }, []);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState('all');
 
-  const loadAcademyData = (username) => {
-    const savedCenters = localStorage.getItem(`apex_centers_${username}`);
-    if (savedCenters) {
-      const parsedCenters = JSON.parse(savedCenters);
-      setCenters(parsedCenters);
-      if (parsedCenters.length > 0) setCurrentCenter(parsedCenters[0]);
-    }
-    const savedSt = localStorage.getItem(`apex_students_${username}`);
-    if (savedSt) setStudents(JSON.parse(savedSt));
-    const savedGr = localStorage.getItem(`apex_groups_${username}`);
-    if (savedGr) setGroups(JSON.parse(savedGr));
-    const savedNotes = localStorage.getItem(`apex_notes_${username}`);
-    if (savedNotes) setLessonNotes(JSON.parse(savedNotes));
+  // Auth Form State
+  const [authMode, setAuthMode] = useState('login'); // login | register
+  const [authData, setAuthData] = useState({ username: '', password: '', name: '', role: 'coach', centerName: '' });
+  const [authError, setAuthError] = useState('');
+
+  // Yangi element qo'shish modallari
+  const [modalType, setModalType] = useState(null); // 'center' | 'director' | 'group' | 'student' | 'transfer'
+  const [modalData, setModalData] = useState({});
+
+  // Jonli Dars Doskasi State'lari
+  const [gameRoom, setGameRoom] = useState(null);
+  const [boardPosition, setBoardPosition] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+  const [turnControl, setTurnControl] = useState('both'); // coach | student | both
+  const [selectedSquare, setSelectedSquare] = useState(null);
+  const [isLiveActive, setIsLiveActive] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+
+  const syncDB = (newDb) => {
+    setDb(newDb);
+    saveDB(newDb);
   };
 
-  const saveStudents = (newSt) => {
-    setStudents(newSt);
-    if (currentUser) localStorage.setItem(`apex_students_${currentUser.username}`, JSON.stringify(newSt));
-  };
-
-  const saveGroups = (newGr) => {
-    setGroups(newGr);
-    if (currentUser) localStorage.setItem(`apex_groups_${currentUser.username}`, JSON.stringify(newGr));
-  };
-
-  const saveCenters = (newCent) => {
-    setCenters(newCent);
-    if (currentUser) localStorage.setItem(`apex_centers_${currentUser.username}`, JSON.stringify(newCent));
-  };
-
-  // Kirish / Ro'yxatdan o'tish mantiqi
-  const handleAuth = (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
     setAuthError('');
-    const coaches = JSON.parse(localStorage.getItem('apex_coaches') || '{}');
+    const user = db.users.find(u => u.username.toLowerCase() === authData.username.toLowerCase().trim() && u.password === authData.password);
+    if (!user) {
+      setAuthError("Username yoki parol noto'g'ri!");
+      return;
+    }
+    user.online = true;
+    user.lastActive = new Date().toISOString();
+    syncDB({ ...db });
+    setCurrentUser(user);
+    localStorage.setItem('chess_coach_current_user', JSON.stringify(user));
+  };
 
-    if (usernameInput === 'bekzod' && passwordInput === 'jovliyev75828') {
-      const adminUser = { username: 'bekzod', name: 'Bekzod (Super Admin)', role: 'admin' };
-      localStorage.setItem('apex_active_coach', JSON.stringify(adminUser));
-      setCurrentUser(adminUser);
-      loadAcademyData('bekzod');
+  const handleRegister = (e) => {
+    e.preventDefault();
+    setAuthError('');
+    const cleanUser = authData.username.trim();
+
+    // Validatsiyalar
+    if (/\s/.test(cleanUser)) {
+      setAuthError("Username'da bo'sh joy (space) bo'lishi mumkin emas!");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]{6,}$/.test(cleanUser)) {
+      setAuthError("Username kamida 6 belgidan iborat, faqat harf, son va pastki chiziqcha (_) bo'lishi kerak!");
+      return;
+    }
+    if (authData.password.length < 6) {
+      setAuthError("Parol kamida 6 belgidan iborat bo'lishi kerak!");
+      return;
+    }
+    if (db.users.some(u => u.username.toLowerCase() === cleanUser.toLowerCase())) {
+      setAuthError("Ushbu username band! Boshqa nom tanlang.");
       return;
     }
 
-    if (authMode === 'register') {
-      if (coaches[usernameInput]) {
-        setAuthError('Bu username band!');
-        return;
-      }
-      const newCoach = { username: usernameInput, password: passwordInput, name: coachNameInput || usernameInput, role: 'coach' };
-      coaches[usernameInput] = newCoach;
-      localStorage.setItem('apex_coaches', JSON.stringify(coaches));
-      localStorage.setItem('apex_active_coach', JSON.stringify(newCoach));
-      setCurrentUser(newCoach);
-      loadAcademyData(newCoach.username);
-    } else {
-      const coach = coaches[usernameInput];
-      if (!coach || coach.password !== passwordInput) {
-        setAuthError('Login yoki parol xato!');
-        return;
-      }
-      localStorage.setItem('apex_active_coach', JSON.stringify(coach));
-      setCurrentUser(coach);
-      loadAcademyData(coach.username);
+    const newUserId = 'user_' + Date.now();
+    let userCenterId = null;
+
+    let updatedCenters = [...db.centers];
+    if (authData.role === 'director') {
+      userCenterId = 'center_' + Date.now();
+      updatedCenters.push({
+        id: userCenterId,
+        name: authData.centerName || 'Yangi Akademiya',
+        directorId: newUserId
+      });
     }
+
+    const newUser = {
+      id: newUserId,
+      username: cleanUser,
+      password: authData.password,
+      name: authData.name || cleanUser,
+      role: authData.role,
+      centerId: userCenterId,
+      online: true,
+      lastActive: new Date().toISOString()
+    };
+
+    const newDb = {
+      ...db,
+      users: [...db.users, newUser],
+      centers: updatedCenters
+    };
+
+    syncDB(newDb);
+    setCurrentUser(newUser);
+    localStorage.setItem('chess_coach_current_user', JSON.stringify(newUser));
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('apex_active_coach');
-    setCurrentUser(null);
-  };
-
-  // Markaz qo'shish
-  const handleAddCenter = (e) => {
-    e.preventDefault();
-    if (!newCenterName.trim()) return;
-    const updated = [...centers, newCenterName.trim()];
-    saveCenters(updated);
-    setCurrentCenter(newCenterName.trim());
-    setNewCenterName('');
-    setShowAddCenterModal(false);
-  };
-
-  // Shaxmat yurish mantiqi
-  const handleSquareClick = (rowIndex, colIndex) => {
-    const actualRow = isFlipped ? 7 - rowIndex : rowIndex;
-    const actualCol = isFlipped ? 7 - colIndex : colIndex;
-    const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-    const square = files[actualCol] + (8 - actualRow);
-
-    if (!selectedSquare) {
-      const piece = chessRef.current.get(square);
-      if (piece) setSelectedSquare(square);
-    } else {
-      const move = chessRef.current.move({
-        from: selectedSquare,
-        to: square,
-        promotion: 'q'
-      });
-
-      if (move) {
-        setBoardState([...chessRef.current.board()]);
-        setSelectedSquare(null);
-      } else {
-        const piece = chessRef.current.get(square);
-        if (piece) setSelectedSquare(square);
-        else setSelectedSquare(null);
-      }
+    if (currentUser) {
+      const u = db.users.find(x => x.id === currentUser.id);
+      if (u) u.online = false;
+      syncDB({ ...db });
     }
+    setCurrentUser(null);
+    localStorage.removeItem('chess_coach_current_user');
   };
 
-  const resetBoard = () => {
-    chessRef.current.reset();
-    setBoardState([...chessRef.current.board()]);
-    setSelectedSquare(null);
-  };
+  // --- Filterlangan ma'lumotlar (Izolyatsiya qoidasi) --- //
+  const isSuper = currentUser?.role === 'superadmin';
+  const isDirector = currentUser?.role === 'director';
+  
+  const accessibleCenters = isSuper ? db.centers : db.centers.filter(c => c.directorId === currentUser?.id || c.id === currentUser?.centerId);
+  const currentCenter = accessibleCenters[0] || null;
 
-  // O'quvchi qo'shish
-  const handleAddStudent = (e) => {
+  const accessibleGroups = isSuper ? db.groups : db.groups.filter(g => isDirector ? g.centerId === currentCenter?.id : g.coachId === currentUser?.id);
+  const accessibleStudents = isSuper ? db.students : db.students.filter(s => accessibleGroups.some(g => g.id === s.groupId));
+
+  // --- Boshqaruv funksiyalari --- //
+  const addGroup = (e) => {
     e.preventDefault();
-    const newSt = {
-      ...studentForm,
-      id: Date.now().toString(),
-      center: currentCenter,
-      attendance: {}
+    if (!modalData.name) return;
+    const newGroup = {
+      id: 'grp_' + Date.now(),
+      name: modalData.name,
+      days: modalData.days || 'Dush-Sesh-Chor',
+      time: modalData.time || '14:00 - 16:00',
+      coachId: modalData.coachId || currentUser.id,
+      coachName: modalData.coachName || currentUser.name,
+      centerId: currentCenter?.id || 'center_1',
+      price: Number(modalData.price) || 300000
     };
-    const updated = [...students, newSt];
-    saveStudents(updated);
-    setShowAddStudentModal(false);
-    setStudentForm({
-      name: '', age: '', phone: '', parentPhone: '',
-      lichessUsername: '', initialRating: '',
-      group: groups[0] || 'Umumiy',
-      initialDiagnosis: '', monthlyFee: '300000',
-      isPaid: false
+    syncDB({ ...db, groups: [...db.groups, newGroup] });
+    setModalType(null);
+    setModalData({});
+  };
+
+  const deleteGroup = (groupId) => {
+    if (!confirm("Guruhni butunlay o'chirmoqchimisiz?")) return;
+    syncDB({
+      ...db,
+      groups: db.groups.filter(g => g.id !== groupId),
+      students: db.students.filter(s => s.groupId !== groupId)
     });
   };
 
-  // Guruh qo'shish
-  const handleAddGroup = (e) => {
+  const addStudent = (e) => {
     e.preventDefault();
-    if (!newGroupName.trim()) return;
-    const updated = [...groups, newGroupName.trim()];
-    saveGroups(updated);
-    setNewGroupName('');
-    setShowAddGroupModal(false);
+    if (!modalData.name || !modalData.groupId) return;
+    const newStudent = {
+      id: 'std_' + Date.now(),
+      name: modalData.name,
+      phone: modalData.phone || '',
+      groupId: modalData.groupId,
+      joinedDate: new Date().toLocaleDateString(),
+      paidCurrentMonth: false,
+      debt: Number(modalData.debt) || 0,
+      achievements: []
+    };
+    syncDB({ ...db, students: [...db.students, newStudent] });
+    setModalType(null);
+    setModalData({});
   };
 
-  // O'chirish
-  const confirmDelete = () => {
-    if (!deleteConfirmStudent) return;
-    const updated = students.filter(s => s.id !== deleteConfirmStudent.id);
-    saveStudents(updated);
-    setDeleteConfirmStudent(null);
-  };
-
-  // To'lov
   const togglePayment = (studentId) => {
-    const updated = students.map(s => {
-      if (s.id === studentId) return { ...s, isPaid: !s.isPaid };
-      return s;
-    });
-    saveStudents(updated);
-  };
-
-  // Davomat
-  const toggleAttendance = (studentId, status) => {
-    const updated = students.map(s => {
+    const updated = db.students.map(s => {
       if (s.id === studentId) {
-        return {
-          ...s,
-          attendance: {
-            ...s.attendance,
-            [journalDate]: {
-              status,
-              topic: selectedTopicNum ? `${selectedTopicNum}-mavzu` : 'Mavzu kiritilmagan'
-            }
-          }
-        };
+        return { ...s, paidCurrentMonth: !s.paidCurrentMonth, debt: s.paidCurrentMonth ? 300000 : 0 };
       }
       return s;
     });
-    saveStudents(updated);
+    syncDB({ ...db, students: updated });
   };
 
-  const toggleRecordLesson = () => {
-    if (!isRecording) {
-      setIsRecording(true);
+  // --- Shaxmat Taxtasi Harakat Logikasi --- //
+  const handleSquareClick = (square) => {
+    if (!selectedSquare) {
+      setSelectedSquare(square);
     } else {
-      setIsRecording(false);
-      const newNote = {
-        id: Date.now(),
-        date: new Date().toLocaleString(),
-        movesCount: chessRef.current.history().length,
-        coach: currentUser.name,
-        center: currentCenter
-      };
-      const updatedNotes = [newNote, ...lessonNotes];
-      setLessonNotes(updatedNotes);
-      if (currentUser) {
-        localStorage.setItem(`apex_notes_${currentUser.username}`, JSON.stringify(updatedNotes));
-      }
-      alert("Dars yakunlandi va tizim arxiviga saqlandi.");
+      // Soddalashtirilgan tosh surish mexanizmi
+      setSelectedSquare(null);
     }
   };
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-        <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl w-full max-w-sm space-y-4 shadow-2xl">
-          <div className="text-center space-y-1">
-            <h1 className="text-2xl font-black text-emerald-400">♟️ APEX CRM</h1>
-            <p className="text-xs text-slate-400">Apex Chess Academy boshqaruv tizimi</p>
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl">
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto mb-3 text-3xl text-emerald-400">
+              ♟
+            </div>
+            <h1 className="text-2xl font-black tracking-wide text-white">Chess Coach UZ</h1>
+            <p className="text-xs text-slate-400 mt-1">Shaxmat Akademiyalari Boshqaruv Tizimi</p>
+          </div>
+
+          <div className="flex bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
+            <button 
+              onClick={() => { setAuthMode('login'); setAuthError(''); }}
+              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${authMode === 'login' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+              Kirish
+            </button>
+            <button 
+              onClick={() => { setAuthMode('register'); setAuthError(''); }}
+              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${authMode === 'register' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+              Ro'yxatdan o'tish
+            </button>
           </div>
 
           {authError && (
-            <div className="bg-rose-500/20 border border-rose-500/50 p-2.5 rounded-xl text-xs text-rose-300 text-center">
+            <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs font-medium">
               {authError}
             </div>
           )}
 
-          <form onSubmit={handleAuth} className="space-y-3">
-            {authMode === 'register' && (
-              <input
-                required
-                type="text"
-                placeholder="Ism Familiyangiz"
-                value={coachNameInput}
-                onChange={(e) => setCoachNameInput(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:border-emerald-500 outline-none"
-              />
-            )}
-            <input
-              required
-              type="text"
-              placeholder="Username"
-              value={usernameInput}
-              onChange={(e) => setUsernameInput(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:border-emerald-500 outline-none"
-            />
-            <input
-              required
-              type="password"
-              placeholder="Parol"
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:border-emerald-500 outline-none"
-            />
-            <button
-              type="submit"
-              className="w-full bg-emerald-500 hover:bg-emerald-600 py-3 rounded-xl text-sm font-bold text-white transition shadow-lg shadow-emerald-500/20"
-            >
-              {authMode === 'login' ? 'Tizimga kirish' : 'Roʻyxatdan oʻtish'}
-            </button>
-          </form>
-
-          <div className="text-center pt-2">
-            <button
-              onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}
-              className="text-xs text-slate-400 hover:text-emerald-400 transition"
-            >
-              {authMode === 'login' ? 'Yangi ustozmisiz? Roʻyxatdan oʻtish' : 'Akkaunt bormi? Tizimga kirish'}
-            </button>
-          </div>
+          {authMode === 'login' ? (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Username</label>
+                <input 
+                  type="text"
+                  placeholder="masalan: bekzod_coach"
+                  value={authData.username}
+                  onChange={e => setAuthData({...authData, username: e.target.value.replace(/\s+/g, '')})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Parol</label>
+                <input 
+                  type="password"
+                  placeholder="Kamida 6 belgi"
+                  value={authData.password}
+                  onChange={e => setAuthData({...authData, password: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+              <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">
+                Tizimga Kirish
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleRegister} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Ism Familiya</label>
+                <input 
+                  type="text"
+                  placeholder="Bekzod Javliev"
+                  value={authData.name}
+                  onChange={e => setAuthData({...authData, name: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Username (Bosh joylarsiz)</label>
+                <input 
+                  type="text"
+                  placeholder="bekzod_coach1"
+                  value={authData.username}
+                  onChange={e => setAuthData({...authData, username: e.target.value.replace(/\s+/g, '')})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Parol</label>
+                <input 
+                  type="password"
+                  placeholder="Kamida 6 belgi"
+                  value={authData.password}
+                  onChange={e => setAuthData({...authData, password: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Rolingiz</label>
+                <select 
+                  value={authData.role}
+                  onChange={e => setAuthData({...authData, role: e.target.value})}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500">
+                  <option value="coach">Murabbiy (Coach)</option>
+                  <option value="director">O'quv Markazi Direktori</option>
+                </select>
+              </div>
+              {authData.role === 'director' && (
+                <div>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Akademiya Nomi</label>
+                  <input 
+                    type="text"
+                    placeholder="Masalan: Yuksalish Shaxmat Klubi"
+                    value={authData.centerName}
+                    onChange={e => setAuthData({...authData, centerName: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+              )}
+              <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all mt-2">
+                Ro'yxatdan O'tish
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );
   }
 
-  const centerStudents = students.filter(s => !s.center || s.center === currentCenter);
-  const totalIncome = centerStudents.filter(s => s.isPaid).reduce((acc, s) => acc + Number(s.monthlyFee || 0), 0);
-  const totalDebtors = centerStudents.filter(s => !s.isPaid).length;
-
+  // --- Asosiy CRM Interfeysi --- //
   return (
-    <div className="flex min-h-screen bg-slate-950 text-slate-100">
-      {/* Ochilib-yopiluvchi Parda */}
-      {isSidebarOpen && (
-        <div
-          onClick={() => setIsSidebarOpen(false)}
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 md:hidden"
-        ></div>
-      )}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
+      {/* Mobil Header */}
+      <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 sticky top-0 z-40">
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-white text-lg">♟</div>
+          <span className="font-extrabold text-lg text-white">Chess Coach UZ</span>
+        </div>
+        <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 bg-slate-800 rounded-lg text-slate-200">
+          ☰
+        </button>
+      </div>
 
-      {/* Chap Yon Menyu (Sidebar) */}
-      <aside className={`fixed md:static top-0 bottom-0 left-0 w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between z-50 transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-        <div className="p-5 space-y-5">
-          <div className="flex justify-between items-center">
+      {/* Chap Menyu (Sidebar) */}
+      <aside className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col justify-between transform transition-transform duration-200 ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div>
+          <div className="p-6 border-b border-slate-800 hidden md:flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center font-black text-2xl text-white shadow-lg shadow-emerald-500/30">♟</div>
             <div>
-              <h1 className="text-xl font-black text-emerald-400 flex items-center gap-2">♟️ APEX CHESS</h1>
-              <p className="text-[11px] text-slate-400 mt-0.5">{currentUser.name}</p>
+              <h2 className="font-black text-lg text-white leading-tight">Chess Coach UZ</h2>
+              <p className="text-[11px] text-emerald-400 font-bold tracking-wide uppercase">Boshqaruv Tizimi</p>
             </div>
-            <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white p-1 text-lg">✕</button>
           </div>
 
-          {/* O'quv Markazlari */}
-          <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
-            <div className="flex justify-between items-center text-xs text-slate-400">
-              <span className="font-semibold">Oʻquv Markaz:</span>
-              <button
-                onClick={() => setShowAddCenterModal(true)}
-                className="text-emerald-400 font-bold hover:underline"
-              >
-                + Yangi
+          {/* Menyu Bo'limlari */}
+          <nav className="p-4 space-y-1.5">
+            <button 
+              onClick={() => { setActiveTab('dashboard'); setMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${activeTab === 'dashboard' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}>
+              <span>📊</span>
+              <span>Boshqaruv Paneli</span>
+            </button>
+
+            {isSuper && (
+              <button 
+                onClick={() => { setActiveTab('super_admin'); setMenuOpen(false); }}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${activeTab === 'super_admin' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-indigo-400 hover:bg-slate-800/60'}`}>
+                <span>👑</span>
+                <span>Super Admin Nazorati</span>
               </button>
-            </div>
-            <select
-              value={currentCenter}
-              onChange={(e) => setCurrentCenter(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-white outline-none focus:border-emerald-500"
-            >
-              {centers.map((c, i) => <option key={i} value={c}>{c}</option>)}
-            </select>
-          </div>
+            )}
 
-          {/* Menyu Tugmalari */}
-          <nav className="space-y-1 text-sm font-medium pt-2">
-            <button
-              onClick={() => { setActiveTab('dashboard'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-            >
-              📊 Boshqaruv Paneli
+            <button 
+              onClick={() => { setActiveTab('groups'); setMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${activeTab === 'groups' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}>
+              <span>👥</span>
+              <span>Guruhlar & Darslar</span>
             </button>
-            <button
-              onClick={() => { setActiveTab('students'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'students' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-            >
-              👥 Oʻquvchilar ({centerStudents.length})
+
+            <button 
+              onClick={() => { setActiveTab('students'); setMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${activeTab === 'students' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}>
+              <span>🎓</span>
+              <span>O'quvchilar Bazasi</span>
             </button>
-            <button
-              onClick={() => { setActiveTab('groups'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'groups' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-            >
-              🎓 Guruhlar ({groups.length})
+
+            <button 
+              onClick={() => { setActiveTab('finance'); setMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${activeTab === 'finance' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}>
+              <span>💰</span>
+              <span>Kassa & Qarzlar</span>
             </button>
-            <button
-              onClick={() => { setActiveTab('journal'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'journal' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-            >
-              📅 Dars & Davomat
-            </button>
-            <button
-              onClick={() => { setActiveTab('live'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'live' ? 'bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'text-emerald-400 hover:bg-slate-800'}`}
-            >
-              🔴 Jonli Dars Xonasi
-            </button>
-            <button
-              onClick={() => { setActiveTab('finance'); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition ${activeTab === 'finance' ? 'bg-emerald-500/10 text-emerald-400 font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}
-            >
-              💰 Kassa & Moliya
+
+            <button 
+              onClick={() => { setActiveTab('live'); setMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all ${activeTab === 'live' ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20 animate-pulse' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}>
+              <span>🔴</span>
+              <span>Jonli Dars Taxtasi</span>
             </button>
           </nav>
         </div>
 
-        <div className="p-4 border-t border-slate-800">
-          <button
+        {/* Profil bloki */}
+        <div className="p-4 border-t border-slate-800 bg-slate-950/50 m-3 rounded-2xl">
+          <div className="flex items-center space-x-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center font-bold text-emerald-400">
+              {currentUser.name.charAt(0)}
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-sm font-bold text-white truncate">{currentUser.name}</p>
+              <p className="text-xs text-slate-400 truncate">@{currentUser.username}</p>
+            </div>
+          </div>
+          <button 
             onClick={handleLogout}
-            className="w-full bg-slate-800 hover:bg-rose-600/20 hover:text-rose-400 text-slate-400 py-2.5 rounded-xl text-xs font-semibold transition"
-          >
+            className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 font-semibold text-xs rounded-xl transition-all">
             Chiqish
           </button>
         </div>
       </aside>
 
-      {/* Asosiy Ishchi Oyna */}
-      <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
-        {/* Yuqori Header va Gamburger (3 ta chiziqcha) */}
-        <header className="p-3.5 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-200 focus:outline-none flex flex-col gap-1 w-9 h-9 justify-center items-center"
-            >
-              <span className="w-5 h-0.5 bg-slate-200 rounded-full"></span>
-              <span className="w-5 h-0.5 bg-slate-200 rounded-full"></span>
-              <span className="w-5 h-0.5 bg-slate-200 rounded-full"></span>
-            </button>
-            <div>
-              <h1 className="font-bold text-emerald-400 text-sm">{currentCenter}</h1>
-              <p className="text-[10px] text-slate-400">Ustoz: {currentUser.name}</p>
+      {/* Asosiy Ish Maydoni */}
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl">
+        {/* SUPER ADMIN NAZORATI */}
+        {activeTab === 'super_admin' && isSuper && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-indigo-900/50 to-slate-900 border border-indigo-500/30 p-6 rounded-3xl">
+              <div>
+                <h2 className="text-2xl font-black text-white">Super Admin Monitoring Tizimi</h2>
+                <p className="text-xs text-indigo-300 mt-1">Platformadagi barcha markazlar, direktorlar va real vaqtdagi foydalanuvchilar</p>
+              </div>
+              <button 
+                onClick={() => { setModalType('director'); setModalData({}); }}
+                className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 font-bold text-sm rounded-xl shadow-lg shadow-indigo-600/30">
+                + Yangi Direktor & Markaz Qo'shish
+              </button>
+            </div>
+
+            {/* Real vaqt statlari */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                <p className="text-xs text-slate-400 font-bold uppercase">Jonli Ishlatayotganlar</p>
+                <div className="flex items-center space-x-2 mt-2">
+                  <span className="w-3 h-3 bg-emerald-500 rounded-full animate-ping"></span>
+                  <p className="text-3xl font-black text-white">{db.users.filter(u => u.online).length} kishi</p>
+                </div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                <p className="text-xs text-slate-400 font-bold uppercase">Jami Direktorlar & Markazlar</p>
+                <p className="text-3xl font-black text-white mt-2">{db.centers.length} ta</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl">
+                <p className="text-xs text-slate-400 font-bold uppercase">Jami O'quvchilar Tizimda</p>
+                <p className="text-3xl font-black text-white mt-2">{db.students.length} ta</p>
+              </div>
+            </div>
+
+            {/* Direktorlar va Parollari Jadvali */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+              <h3 className="text-lg font-bold text-white mb-4">Barcha Direktorlar va Akademiyalar Nazorati</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="text-xs text-slate-400 border-b border-slate-800 uppercase">
+                    <tr>
+                      <th className="pb-3">Akademiya</th>
+                      <th className="pb-3">Direktor</th>
+                      <th className="pb-3">Username</th>
+                      <th className="pb-3">Parol (Admin uchun)</th>
+                      <th className="pb-3">Holati</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {db.centers.map(center => {
+                      const dir = db.users.find(u => u.id === center.directorId);
+                      return (
+                        <tr key={center.id} className="hover:bg-slate-800/40">
+                          <td className="py-3 font-bold text-white">{center.name}</td>
+                          <td className="py-3 text-slate-300">{dir?.name || 'Tayinlanmagan'}</td>
+                          <td className="py-3 text-emerald-400 font-mono">@{dir?.username}</td>
+                          <td className="py-3 text-rose-400 font-mono font-bold">{dir?.password}</td>
+                          <td className="py-3">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${dir?.online ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                              {dir?.online ? 'Online' : 'Offline'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
+        )}
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddCenterModal(true)}
-              className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs font-bold transition"
-            >
-              + Markaz
-            </button>
+        {/* DASHBOARD TAB */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-full text-xs font-bold">
+                  {currentCenter?.name || "Shaxsiy Kabinet"}
+                </span>
+                <h1 className="text-2xl md:text-3xl font-black text-white mt-2">Salom, {currentUser.name}!</h1>
+                <p className="text-xs text-slate-400 mt-1">Guruhlar, to'lovlar va jonli shaxmat darslari nazorati</p>
+              </div>
+              <button 
+                onClick={() => { setActiveTab('live'); }}
+                className="px-6 py-3 bg-rose-500 hover:bg-rose-600 font-bold rounded-2xl shadow-lg shadow-rose-500/30 flex items-center space-x-2">
+                <span>🔴</span>
+                <span>Jonli Darsga O'tish</span>
+              </button>
+            </div>
+
+            {/* Asosiy ko'rsatkichlar */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div onClick={() => setActiveTab('groups')} className="cursor-pointer bg-slate-900 border border-slate-800 hover:border-emerald-500/40 p-5 rounded-2xl transition-all">
+                <p className="text-xs font-bold text-slate-400 uppercase">Guruhlar</p>
+                <p className="text-2xl md:text-3xl font-black text-white mt-1">{accessibleGroups.length}</p>
+                <p className="text-[11px] text-emerald-400 mt-1">Boshqarish ➔</p>
+              </div>
+              <div onClick={() => setActiveTab('students')} className="cursor-pointer bg-slate-900 border border-slate-800 hover:border-emerald-500/40 p-5 rounded-2xl transition-all">
+                <p className="text-xs font-bold text-slate-400 uppercase">O'quvchilar</p>
+                <p className="text-2xl md:text-3xl font-black text-white mt-1">{accessibleStudents.length}</p>
+                <p className="text-[11px] text-emerald-400 mt-1">Ro'yxat ➔</p>
+              </div>
+              <div onClick={() => { setActiveTab('finance'); setActiveSubTab('debt'); }} className="cursor-pointer bg-slate-900 border border-slate-800 hover:border-rose-500/40 p-5 rounded-2xl transition-all">
+                <p className="text-xs font-bold text-rose-400 uppercase">Qarzdorlar</p>
+                <p className="text-2xl md:text-3xl font-black text-rose-400 mt-1">
+                  {accessibleStudents.filter(s => !s.paidCurrentMonth).length}
+                </p>
+                <p className="text-[11px] text-rose-400 mt-1">Ro'yxatni ko'rish ➔</p>
+              </div>
+              <div onClick={() => setActiveTab('finance')} className="cursor-pointer bg-slate-900 border border-slate-800 hover:border-emerald-500/40 p-5 rounded-2xl transition-all">
+                <p className="text-xs font-bold text-emerald-400 uppercase">Kassa Tushumi</p>
+                <p className="text-2xl md:text-3xl font-black text-white mt-1">
+                  {(accessibleStudents.filter(s => s.paidCurrentMonth).length * 300000).toLocaleString()} so'm
+                </p>
+                <p className="text-[11px] text-emerald-400 mt-1">Moliya ➔</p>
+              </div>
+            </div>
           </div>
-        </header>
+        )}
 
-        <main className="p-4 sm:p-6 flex-1 max-w-5xl w-full mx-auto pb-10">
-          {/* DASHBOARD */}
-          {activeTab === 'dashboard' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <p className="text-xs text-slate-400">Jami Oʻquvchilar</p>
-                  <p className="text-2xl font-black text-white mt-1">{centerStudents.length}</p>
-                </div>
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <p className="text-xs text-slate-400">Guruhlar</p>
-                  <p className="text-2xl font-black text-sky-400 mt-1">{groups.length}</p>
-                </div>
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <p className="text-xs text-slate-400">Oylik Tushum</p>
-                  <p className="text-xl font-black text-emerald-400 mt-1">{totalIncome.toLocaleString()} soʻm</p>
-                </div>
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <p className="text-xs text-slate-400">Qarzdorlar</p>
-                  <p className="text-2xl font-black text-rose-400 mt-1">{totalDebtors} ta</p>
-                </div>
+        {/* GURUHLAR BO'LIMI */}
+        {activeTab === 'groups' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-black text-white">Guruhlar Ro'yxati</h2>
+                <p className="text-xs text-slate-400">Har bir guruh uchun mas'ul murabbiy va vaqtlar</p>
               </div>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={() => setShowAddStudentModal(true)}
-                  className="bg-emerald-500 hover:bg-emerald-600 px-4 py-2.5 rounded-xl font-bold text-xs text-white shadow-lg transition"
-                >
-                  + Yangi Oʻquvchi Qoʻshish
-                </button>
-                <button
-                  onClick={() => setShowAddGroupModal(true)}
-                  className="bg-slate-800 hover:bg-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs text-slate-200 transition"
-                >
-                  + Yangi Guruh Ochish
-                </button>
-              </div>
+              <button 
+                onClick={() => { setModalType('group'); setModalData({}); }}
+                className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/20">
+                + Yangi Guruh Ochish
+              </button>
             </div>
-          )}
 
-          {/* O'QUVCHILAR */}
-          {activeTab === 'students' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-base font-bold text-white">Oʻquvchilar ({currentCenter})</h2>
-                <button
-                  onClick={() => setShowAddStudentModal(true)}
-                  className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded-xl text-xs font-bold text-white transition"
-                >
-                  + Oʻquvchi
+            {accessibleGroups.length === 0 ? (
+              <div className="p-12 text-center bg-slate-900 border border-dashed border-slate-800 rounded-3xl">
+                <div className="text-4xl mb-2">👥</div>
+                <p className="text-slate-400 text-sm">Hozircha hech qanday guruh mavjud emas.</p>
+                <button 
+                  onClick={() => { setModalType('group'); setModalData({}); }}
+                  className="mt-4 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-xs rounded-xl">
+                  Birinchi guruhni yarating
                 </button>
               </div>
-
-              <div className="grid gap-3">
-                {centerStudents.length === 0 ? (
-                  <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl text-center text-xs text-slate-500">
-                    Ushbu markazda hali oʻquvchilar yoʻq.
-                  </div>
-                ) : (
-                  centerStudents.map(st => (
-                    <div key={st.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-base text-white">{st.name}</h3>
-                          <span className="text-[10px] bg-slate-800 text-sky-400 px-2 py-0.5 rounded-md">{st.group}</span>
-                          {st.isPaid ? (
-                            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-md font-bold">Toʻlangan</span>
-                          ) : (
-                            <span className="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-md font-bold">Qarz</span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-400">Tel: {st.phone || 'Yoʻq'} • Ota-onasi: {st.parentPhone || 'Kiritilmagan'}</p>
-                        <p className="text-xs text-slate-300">
-                          <strong className="text-emerald-400">Boshlangʻich Lichess:</strong> {st.initialRating || '0'} | <strong className="text-slate-400">Tashxis:</strong> {st.initialDiagnosis || 'Kiritilmagan'}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2 self-end sm:self-center">
-                        {st.lichessUsername && (
-                          <a
-                            href={`https://lichess.org/@/${st.lichessUsername}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-xl text-xs text-emerald-400 font-medium"
-                          >
-                            Lichess ↗
-                          </a>
-                        )}
-                        <button
-                          onClick={() => togglePayment(st.id)}
-                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition ${st.isPaid ? 'bg-slate-800 text-slate-400' : 'bg-emerald-600 text-white'}`}
-                        >
-                          {st.isPaid ? 'Qarz qilish' : 'Toʻlov qabul qilish'}
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmStudent(st)}
-                          className="bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white px-2.5 py-1.5 rounded-xl text-xs font-bold transition"
-                        >
-                          Oʻchirish
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* GURUHLAR */}
-          {activeTab === 'groups' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-base font-bold text-white">Akademiya Guruhlari</h2>
-                <button
-                  onClick={() => setShowAddGroupModal(true)}
-                  className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded-xl text-xs font-bold text-white transition"
-                >
-                  + Yangi Guruh
-                </button>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                {groups.map((grp, idx) => {
-                  const count = centerStudents.filter(s => s.group === grp).length;
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {accessibleGroups.map(grp => {
+                  const grpStudents = db.students.filter(s => s.groupId === grp.id);
                   return (
-                    <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-3">
-                      <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-white text-base">{grp}</h3>
-                        <span className="text-xs bg-slate-800 text-emerald-400 px-2.5 py-1 rounded-lg font-semibold">{count} ta oʻquvchi</span>
-                      </div>
-                      <div className="text-xs text-slate-400 space-y-1">
-                        {centerStudents.filter(s => s.group === grp).map(s => (
-                          <div key={s.id} className="flex justify-between border-b border-slate-800/50 py-1">
-                            <span>{s.name}</span>
-                            <span className="text-slate-500">{s.phone}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* JURNAL & DAVOMAT */}
-          {activeTab === 'journal' && (
-            <div className="space-y-4">
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl grid sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold">Dars Sanasi</label>
-                  <input
-                    type="date"
-                    value={journalDate}
-                    onChange={(e) => setJournalDate(e.target.value)}
-                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold">Guruhni Tanlang</label>
-                  <select
-                    value={selectedGroup}
-                    onChange={(e) => setSelectedGroup(e.target.value)}
-                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                  >
-                    {groups.map((g, i) => <option key={i} value={g}>{g}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 font-semibold">Oʻtilgan Mavzu №</label>
-                  <input
-                    type="text"
-                    placeholder="Masalan: 5"
-                    value={selectedTopicNum}
-                    onChange={(e) => setSelectedTopicNum(e.target.value)}
-                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                {centerStudents.filter(s => s.group === selectedGroup).map(st => {
-                  const dayStatus = st.attendance?.[journalDate]?.status;
-                  return (
-                    <div key={st.id} className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl flex items-center justify-between">
+                    <div key={grp.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between space-y-4">
                       <div>
-                        <p className="font-bold text-sm text-white">{st.name}</p>
-                        <p className="text-xs text-slate-400">{st.attendance?.[journalDate]?.topic || 'Mavzu kiritilmagan'}</p>
+                        <div className="flex justify-between items-start">
+                          <h3 className="font-extrabold text-lg text-white">{grp.name}</h3>
+                          <button 
+                            onClick={() => deleteGroup(grp.id)} 
+                            className="text-slate-500 hover:text-rose-400 text-sm p-1">
+                            ✕
+                          </button>
+                        </div>
+                        <p className="text-xs text-emerald-400 font-medium mt-1">Ustoz: {grp.coachName}</p>
+                        <div className="mt-3 space-y-1 text-xs text-slate-400">
+                          <p>📅 Kunlar: <span className="text-slate-200">{grp.days}</span></p>
+                          <p>⏰ Vaqt: <span className="text-slate-200">{grp.time}</span></p>
+                          <p>👥 O'quvchilar: <span className="text-white font-bold">{grpStudents.length} ta</span></p>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => toggleAttendance(st.id, 'present')}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${dayStatus === 'present' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-                        >
-                          ✓ Keldi
-                        </button>
-                        <button
-                          onClick={() => toggleAttendance(st.id, 'absent')}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${dayStatus === 'absent' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-                        >
-                          ✕ Kelmadi
+
+                      <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-300">{grp.price.toLocaleString()} so'm/oy</span>
+                        <button 
+                          onClick={() => { setModalType('student'); setModalData({ groupId: grp.id }); }}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs rounded-lg">
+                          + O'quvchi
                         </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* JONLI DARS XONASI */}
-          {activeTab === 'live' && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                <div>
-                  <h2 className="font-bold text-white text-base">🔴 Jonli Dars Xonasi</h2>
-                  <p className="text-xs text-slate-400">Interaktiv doska va dars tarixi</p>
+        {/* O'QUVCHILAR BO'LIMI */}
+        {activeTab === 'students' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-black text-white">O'quvchilar Bazasi</h2>
+                <p className="text-xs text-slate-400">Shogirdlar davomati va yutuqlari</p>
+              </div>
+              <button 
+                onClick={() => { setModalType('student'); setModalData({}); }}
+                className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 font-bold text-sm rounded-xl shadow-lg shadow-emerald-500/20">
+                + O'quvchi Qo'shish
+              </button>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs text-slate-400 border-b border-slate-800 uppercase">
+                  <tr>
+                    <th className="pb-3">Ism Familiya</th>
+                    <th className="pb-3">Guruh</th>
+                    <th className="pb-3">Telefon</th>
+                    <th className="pb-3">To'lov Holati</th>
+                    <th className="pb-3 text-right">Amallar</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {accessibleStudents.map(std => {
+                    const grp = db.groups.find(g => g.id === std.groupId);
+                    return (
+                      <tr key={std.id} className="hover:bg-slate-800/40">
+                        <td className="py-3 font-bold text-white">{std.name}</td>
+                        <td className="py-3 text-slate-300">{grp?.name || 'Guruhsiz'}</td>
+                        <td className="py-3 text-slate-400">{std.phone || '—'}</td>
+                        <td className="py-3">
+                          <button 
+                            onClick={() => togglePayment(std.id)}
+                            className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${std.paidCurrentMonth ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                            {std.paidCurrentMonth ? "To'langan ✓" : "Qarzdor ✕"}
+                          </button>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button 
+                            onClick={() => {
+                              const newName = prompt("Yangi ismni kiriting:", std.name);
+                              if (newName) {
+                                std.name = newName;
+                                syncDB({...db});
+                              }
+                            }}
+                            className="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-lg hover:bg-slate-700">
+                            Tahrirlash
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* KASSA & MOLIYA */}
+        {activeTab === 'finance' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-black text-white">Kassa va Moliya Hisoboti</h2>
+              <p className="text-xs text-slate-400">Oylik tushumlar, qarzdorlar va murabbiylar ulushi</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl">
+                <h3 className="font-bold text-white mb-4">To'lov qilgan o'quvchilar</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {accessibleStudents.filter(s => s.paidCurrentMonth).map(s => (
+                    <div key={s.id} className="flex justify-between items-center p-3 bg-slate-950 rounded-xl border border-slate-800/80">
+                      <span className="text-sm font-semibold text-white">{s.name}</span>
+                      <span className="text-xs font-bold text-emerald-400">+300,000 so'm</span>
+                    </div>
+                  ))}
                 </div>
-                <button
-                  onClick={toggleRecordLesson}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-lg transition flex items-center gap-2 ${isRecording ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'}`}
-                >
-                  <span className={`w-2.5 h-2.5 bg-white rounded-full ${isRecording ? 'animate-ping' : ''}`}></span>
-                  {isRecording ? '⏹️ Darsni Tugatish' : '🔴 Darsni Boshlash'}
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl">
+                <h3 className="font-bold text-rose-400 mb-4">Qarzdorlar Ro'yxati</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {accessibleStudents.filter(s => !s.paidCurrentMonth).map(s => (
+                    <div key={s.id} className="flex justify-between items-center p-3 bg-slate-950 rounded-xl border border-slate-800/80">
+                      <span className="text-sm font-semibold text-white">{s.name}</span>
+                      <span className="text-xs font-bold text-rose-400">Qarz: 300,000 so'm</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* JONLI DARS TAHXTASI (LICHESS/CHESS.COM STANDARTI) */}
+        {activeTab === 'live' && (
+          <div className="space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl">
+              <div>
+                <span className="px-3 py-1 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-full text-xs font-bold">
+                  Jonli Dars Xonasi
+                </span>
+                <h2 className="text-2xl font-black text-white mt-2">Dars Kodingiz: <span className="text-emerald-400 font-mono">{currentUser.username}_1246</span></h2>
+                <p className="text-xs text-slate-400 mt-1">Shogirdlaringiz shu kod orqali dars taxtasiga ulanishadi</p>
+              </div>
+              <div className="flex space-x-3">
+                <button 
+                  onClick={() => setTurnControl(turnControl === 'coach' ? 'both' : 'coach')}
+                  className={`px-4 py-2.5 rounded-xl font-bold text-xs border ${turnControl === 'both' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                  {turnControl === 'both' ? "Shogirdga Navbat Berilgan ✓" : "Navbat Faqat Ustozda ✕"}
                 </button>
               </div>
+            </div>
 
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="md:col-span-2 bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col items-center">
-                  <div className="w-full max-w-[360px] sm:max-w-[420px] bg-amber-900/40 p-2 rounded-2xl border-4 border-slate-800 shadow-2xl">
-                    <div className="flex flex-wrap border-2 border-slate-700 rounded-lg overflow-hidden">
-                      {(isFlipped ? [...boardState].reverse() : boardState).map((row, rIdx) => 
-                        (isFlipped ? [...row].reverse() : row).map((square, cIdx) => {
-                          const isDark = (rIdx + cIdx) % 2 === 1;
-                          const pieceChar = square ? (square.color === 'w' ? square.type.toUpperCase() : square.type) : null;
-                          return (
-                            <div
-                              key={`${rIdx}-${cIdx}`}
-                              onClick={() => handleSquareClick(rIdx, cIdx)}
-                              className={`chess-square transition ${isDark ? 'bg-[#b58863]' : 'bg-[#f0d9b5]'} ${square && square.color === 'w' ? 'text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]' : 'text-slate-950'}`}
-                            >
-                              {pieceChar ? PIECE_SYMBOLS[pieceChar] : ''}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
+            {/* Taxta maydoni */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-3xl flex flex-col items-center">
+                {/* 8x8 Shaxmat Taxtasi (Touch-action to'g'irlangan) */}
+                <div 
+                  className="w-full max-w-[420px] aspect-square grid grid-cols-8 grid-rows-8 border-4 border-slate-800 rounded-xl overflow-hidden shadow-2xl"
+                  style={{ touchAction: 'none' }}>
+                  {Array.from({ length: 64 }).map((_, i) => {
+                    const row = Math.floor(i / 8);
+                    const col = i % 8;
+                    const isDark = (row + col) % 2 === 1;
+                    const squareName = `${String.fromCharCode(97 + col)}${8 - row}`;
 
-                  <div className="flex gap-2 mt-4">
-                    <button
-                      onClick={resetBoard}
-                      className="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300 transition"
-                    >
-                      Boshlangʻich holat
-                    </button>
-                    <button
-                      onClick={() => setIsFlipped(!isFlipped)}
-                      className="bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300 transition"
-                    >
-                      Doskani aylantirish ({isFlipped ? 'Oqlar' : 'Qoralar'})
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
-                  <h3 className="font-bold text-sm text-emerald-400">🎮 Shogirdga Navbat Berish</h3>
-                  <p className="text-[11px] text-slate-400">Qaysi oʻquvchi doskada yursin?</p>
-                  
-                  <div className="space-y-2 max-h-56 overflow-y-auto">
-                    {centerStudents.map(st => (
-                      <div key={st.id} className="flex justify-between items-center p-2 rounded-xl bg-slate-950 border border-slate-800">
-                        <span className="text-xs text-white">{st.name}</span>
-                        <button
-                          onClick={() => setActiveStudentControl(st.name)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${activeStudentControl === st.name ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'}`}
-                        >
-                          {activeStudentControl === st.name ? 'Yurmoqda' : 'Ruxsat berish'}
-                        </button>
+                    return (
+                      <div 
+                        key={i}
+                        onClick={() => handleSquareClick(squareName)}
+                        className={`flex items-center justify-center font-bold text-lg select-none cursor-pointer relative ${isDark ? 'bg-[#769656]' : 'bg-[#eeeed2]'}`}>
+                        {/* Koordinatalar */}
+                        {col === 0 && <span className={`absolute top-0.5 left-1 text-[9px] font-bold ${isDark ? 'text-[#eeeed2]' : 'text-[#769656]'}`}>{8 - row}</span>}
+                        {row === 7 && <span className={`absolute bottom-0.5 right-1 text-[9px] font-bold ${isDark ? 'text-[#eeeed2]' : 'text-[#769656]'}`}>{String.fromCharCode(97 + col)}</span>}
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-800">
-                    <h4 className="text-xs font-bold text-slate-300 mb-2">📁 Darslar Tarixi (Arxiv)</h4>
-                    {lessonNotes.length === 0 ? (
-                      <p className="text-[11px] text-slate-500">Hozircha arxivlangan darslar yoʻq.</p>
-                    ) : (
-                      lessonNotes.map(n => (
-                        <div key={n.id} className="p-2 bg-slate-950 rounded-xl border border-slate-800 text-[11px] space-y-1 mb-1">
-                          <p className="text-slate-300 font-semibold">{n.date}</p>
-                          <p className="text-slate-400">Ustoz: {n.coach} • {n.movesCount} ta yurish</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* KASSA & MOLIYA */}
-          {activeTab === 'finance' && (
-            <div className="space-y-4">
-              <h2 className="text-base font-bold text-white">💰 Moliya & Toʻlovlar ({currentCenter})</h2>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <p className="text-xs text-slate-400">Jami tushgan mablagʻ</p>
-                  <p className="text-2xl font-black text-emerald-400 mt-1">{totalIncome.toLocaleString()} soʻm</p>
-                </div>
-                <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-                  <p className="text-xs text-slate-400">Qarzdorlar soni</p>
-                  <p className="text-2xl font-black text-rose-400 mt-1">{totalDebtors} ta oʻquvchi</p>
+                <div className="flex space-x-2 mt-4">
+                  <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-300">
+                    Boshlang'ich Holat
+                  </button>
+                  <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-300">
+                    Taxtani Aylantirish
+                  </button>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                {centerStudents.map(st => (
-                  <div key={st.id} className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl flex justify-between items-center">
-                    <div>
-                      <p className="font-bold text-sm text-white">{st.name}</p>
-                      <p className="text-xs text-slate-400">Oylik toʻlov: {Number(st.monthlyFee).toLocaleString()} soʻm</p>
+              {/* Chat va Dars Qatnashchilari */}
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl flex flex-col justify-between h-[450px]">
+                <div>
+                  <h3 className="font-bold text-white text-sm mb-3">Dars Chati & Savollar</h3>
+                  <div className="space-y-2 h-64 overflow-y-auto text-xs">
+                    <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                      <span className="font-bold text-emerald-400">Ustoz:</span> Dars boshlandi! Hamma e4 yurishini tahlil qilsin.
                     </div>
-                    <button
-                      onClick={() => togglePayment(st.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${st.isPaid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}
-                    >
-                      {st.isPaid ? '✓ Toʻlangan' : '✕ Toʻlanmagan'}
-                    </button>
                   </div>
-                ))}
+                </div>
+
+                <div className="flex space-x-2">
+                  <input 
+                    type="text"
+                    placeholder="Xabar yozing..."
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
+                  />
+                  <button className="px-4 py-2 bg-emerald-500 font-bold text-xs rounded-xl">
+                    Yuborish
+                  </button>
+                </div>
               </div>
             </div>
-          )}
-        </main>
-      </div>
+          </div>
+        )}
+      </main>
 
       {/* MODALLAR */}
-      {showAddCenterModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl w-full max-w-sm space-y-4">
-            <h3 className="text-base font-bold text-white">Yangi Oʻquv Markazi Qoʻshish</h3>
-            <form onSubmit={handleAddCenter} className="space-y-3">
-              <input
-                required
+      {modalType === 'director' && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold text-white mb-4">Yangi Direktor va Akademiya Qo'shish</h3>
+            <form onSubmit={handleRegister} className="space-y-3">
+              <input 
                 type="text"
-                placeholder="Markaz nomi (Masalan: Apex Samarqand)"
-                value={newCenterName}
-                onChange={(e) => setNewCenterName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none focus:border-emerald-500"
+                placeholder="Direktor Ismi Familiyasi"
+                value={authData.name}
+                onChange={e => setAuthData({...authData, name: e.target.value, role: 'director'})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+                required
               />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddCenterModal(false)}
-                  className="flex-1 bg-slate-800 py-2 rounded-xl text-xs font-semibold text-slate-300"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-2 rounded-xl text-xs font-bold text-white"
-                >
-                  Markazni Saqlash
-                </button>
+              <input 
+                type="text"
+                placeholder="Akademiya Nomi (Masalan: Yuksalish)"
+                value={authData.centerName}
+                onChange={e => setAuthData({...authData, centerName: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+                required
+              />
+              <input 
+                type="text"
+                placeholder="Username (bo'sh joysiz)"
+                value={authData.username}
+                onChange={e => setAuthData({...authData, username: e.target.value.replace(/\s+/g, '')})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+                required
+              />
+              <input 
+                type="password"
+                placeholder="Parol (kamida 6 ta belgi)"
+                value={authData.password}
+                onChange={e => setAuthData({...authData, password: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+                required
+              />
+              <div className="flex space-x-2 pt-2">
+                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-2.5 bg-slate-800 font-bold text-xs rounded-xl">Bekor qilish</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-600 font-bold text-xs rounded-xl">Qo'shish</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {showAddStudentModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl w-full max-w-md space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-base font-bold text-white">Yangi Oʻquvchi ({currentCenter})</h3>
-            <form onSubmit={handleAddStudent} className="space-y-3">
-              <input
-                required
+      {modalType === 'group' && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold text-white mb-4">Yangi Guruh Ochish</h3>
+            <form onSubmit={addGroup} className="space-y-3">
+              <input 
                 type="text"
-                placeholder="F.I.O"
-                value={studentForm.name}
-                onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                placeholder="Guruh Nomi (Masalan: Boshlang'ich A)"
+                value={modalData.name || ''}
+                onChange={e => setModalData({...modalData, name: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+                required
               />
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="number"
-                  placeholder="Yoshi"
-                  value={studentForm.age}
-                  onChange={(e) => setStudentForm({ ...studentForm, age: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                />
-                <select
-                  value={studentForm.group}
-                  onChange={(e) => setStudentForm({ ...studentForm, group: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                >
-                  {groups.map((g, i) => <option key={i} value={g}>{g}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Telefon raqami"
-                  value={studentForm.phone}
-                  onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                />
-                <input
-                  type="text"
-                  placeholder="Ota-onasining tel raqami"
-                  value={studentForm.parentPhone}
-                  onChange={(e) => setStudentForm({ ...studentForm, parentPhone: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Lichess username"
-                  value={studentForm.lichessUsername}
-                  onChange={(e) => setStudentForm({ ...studentForm, lichessUsername: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                />
-                <input
-                  type="number"
-                  placeholder="Boshlangʻich reyting"
-                  value={studentForm.initialRating}
-                  onChange={(e) => setStudentForm({ ...studentForm, initialRating: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                />
-              </div>
-              <textarea
-                placeholder="Diagnostika / Boshlangʻich holat (debyut, zaifliklar)"
-                value={studentForm.initialDiagnosis}
-                onChange={(e) => setStudentForm({ ...studentForm, initialDiagnosis: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
-                rows="2"
+              <input 
+                type="text"
+                placeholder="Kunlar (Masalan: Dush-Chor-Juma)"
+                value={modalData.days || ''}
+                onChange={e => setModalData({...modalData, days: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
               />
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddStudentModal(false)}
-                  className="flex-1 bg-slate-800 py-2.5 rounded-xl text-xs font-semibold text-slate-300"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-2.5 rounded-xl text-xs font-bold text-white"
-                >
-                  Saqlash
-                </button>
+              <input 
+                type="text"
+                placeholder="Vaqt (Masalan: 15:00 - 17:00)"
+                value={modalData.time || ''}
+                onChange={e => setModalData({...modalData, time: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+              />
+              <input 
+                type="number"
+                placeholder="Oylik to'lov (Masalan: 300000)"
+                value={modalData.price || ''}
+                onChange={e => setModalData({...modalData, price: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+              />
+              <div className="flex space-x-2 pt-2">
+                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-2.5 bg-slate-800 font-bold text-xs rounded-xl">Bekor qilish</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-500 font-bold text-xs rounded-xl">Guruhni Ochish</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {showAddGroupModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl w-full max-w-sm space-y-4">
-            <h3 className="text-base font-bold text-white">Yangi Guruh Qoʻshish</h3>
-            <form onSubmit={handleAddGroup} className="space-y-3">
-              <input
-                required
+      {modalType === 'student' && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold text-white mb-4">O'quvchi Qo'shish</h3>
+            <form onSubmit={addStudent} className="space-y-3">
+              <input 
                 type="text"
-                placeholder="Guruh nomi"
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white outline-none"
+                placeholder="O'quvchi Ism Familiyasi"
+                value={modalData.name || ''}
+                onChange={e => setModalData({...modalData, name: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+                required
               />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddGroupModal(false)}
-                  className="flex-1 bg-slate-800 py-2 rounded-xl text-xs font-semibold text-slate-300"
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-2 rounded-xl text-xs font-bold text-white"
-                >
-                  Qoʻshish
-                </button>
+              <input 
+                type="text"
+                placeholder="Telefon Raqami (+998...)"
+                value={modalData.phone || ''}
+                onChange={e => setModalData({...modalData, phone: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+              />
+              <select 
+                value={modalData.groupId || ''}
+                onChange={e => setModalData({...modalData, groupId: e.target.value})}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm"
+                required>
+                <option value="">Guruhni tanlang</option>
+                {accessibleGroups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              <div className="flex space-x-2 pt-2">
+                <button type="button" onClick={() => setModalType(null)} className="flex-1 py-2.5 bg-slate-800 font-bold text-xs rounded-xl">Bekor qilish</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-500 font-bold text-xs rounded-xl">Qo'shish</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {deleteConfirmStudent && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 p-5 rounded-3xl w-full max-w-xs space-y-4 text-center">
-            <h3 className="font-bold text-white text-base">Oʻquvchini oʻchirish</h3>
-            <p className="text-xs text-slate-400">
-              <strong className="text-white">{deleteConfirmStudent.name}</strong> bazadan oʻchirilsinmi?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setDeleteConfirmStudent(null)}
-                className="flex-1 bg-slate-800 py-2 rounded-xl text-xs font-semibold text-slate-300"
-              >
-                Bekor qilish
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="flex-1 bg-rose-600 hover:bg-rose-700 py-2 rounded-xl text-xs font-bold text-white"
-              >
-                Ha, oʻchirish
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -981,4 +960,5 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);

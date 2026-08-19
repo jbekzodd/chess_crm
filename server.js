@@ -2,13 +2,14 @@ const express = require('express');
 const path = require('path');
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
-const { Chess } = require('chess.js');
+const ChessModule = require('chess.js');
+const Chess = ChessModule.Chess || ChessModule;
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Bot Tokeni
-const BOT_TOKEN = '8793505919:AAHeDxho7-sjluGN8u4UyO_CtH-ZlfNfGdw';
+// Render Environment Variables'dan tokenni olish (agar bo'lmasa o'zidagini oladi)
+const BOT_TOKEN = process.env.BOT_TOKEN || '8793505919:AAHeDxho7-sjluGN8u4UyO_CtH-ZlfNfGdw';
 const bot = new Telegraf(BOT_TOKEN);
 
 app.use(express.json());
@@ -37,15 +38,11 @@ function analyzeChessGame(gameData) {
   const chess = new Chess();
   const moves = gameData.moves ? gameData.moves.split(' ') : [];
   let moveCount = 0;
-  let parsedMoves = [];
 
   for (let m of moves) {
     try {
       const res = chess.move(m, { sloppy: true });
-      if (res) {
-        parsedMoves.push(res.san);
-        moveCount++;
-      }
+      if (res) moveCount++;
     } catch (e) {
       break;
     }
@@ -60,22 +57,21 @@ function analyzeChessGame(gameData) {
   if (gameData.winner === 'white' || gameData.result === '1-0') winnerText = `⚪️ Oqlar (${whitePlayer}) g'alaba qozondi`;
   if (gameData.winner === 'black' || gameData.result === '0-1') winnerText = `⚫️ Qoralar (${blackPlayer}) g'alaba qozondi`;
 
-  const opening = gameData.opening?.name || gameData.openingName || "Noma'lum / Erkin debyut";
+  const opening = gameData.opening?.name || gameData.openingName || "Klassik / Erkin debyut";
   const eco = gameData.opening?.eco ? `[${gameData.opening.eco}]` : "";
 
-  // Chuqur taktik xulosalar shakllantirish
   let advice = [];
   const totalRounds = Math.ceil(moveCount / 2);
 
   if (totalRounds <= 6 && (gameData.winner || gameData.result)) {
-    advice.push("⚠️ *Kritik Debyut Xatosi:* Partiya dastlabki bir necha yurishdayoq yakunlangan. Shoh atrofidagi himoya erta ochilib ketgan (Bolalar moti yoki tezkor tuzoq). Dastlabki yurishlarda faqat markazni egallab, yengil toshlarni rivojlantiring.");
+    advice.push("⚠️ *Kritik Debyut Xatosi:* Partiya dastlabki bir necha yurishdayoq yakunlangan. Shoh atrofidagi himoya erta ochilib ketgan. Dastlabki yurishlarda markazni egallab, yengil toshlarni rivojlantiring.");
   } else if (totalRounds < 18 && (gameData.winner || gameData.result)) {
-    advice.push("⚡️ *Taktik Zarba / Qoplama:* O'rta o'yinga o'tish arafasida muhim figura yoki markaziy nazorat boy berilgan. Raqibning hujum yurishlariga nisbatan yetarli profilaktika qilinmagan.");
+    advice.push("⚡️ *Taktik Zarba / Qoplama:* O'rta o'yinga o'tish arafasida muhim figura yoki markaziy nazorat boy berilgan. Raqibning hujum variantlariga nisbatan yetarli profilaktika qilinmagan.");
   } else {
-    advice.push("♟ *Pozitsion Kurash & Endshpil:* Uzoq va keskin kurash kechgan. G'alaba yoki mag'lubiyat toshlar faolligi, shoh xavfsizligi va o'tkinchi piyodalarning to'g'ri qo'llanilishi orqali hal qilingan.");
+    advice.push("♟ *Pozitsion Kurash & Endshpil:* Uzoq va keskin kurash kechgan. G'alaba toshlar faolligi, shoh xavfsizligi va o'tkinchi piyodalarning to'g'ri qo'llanilishi orqali hal qilingan.");
   }
 
-  advice.push("💡 *Murabbiy Tavsiyasi:* Qaysi yurishda ustunlik boy berilganini aniqlash uchun partiyani *Chess Coach CRM -> Tahlil* taxtasiga yuklang va variantlarni murabbiyingiz bilan ko'rib chiqing.");
+  advice.push("🎯 *Murabbiy Tavsiyasi:* Qaysi yurishda ustunlik boy berilganini ko'rish uchun partiyani *Chess Coach CRM -> Tahlil* taxtasiga yuklang.");
 
   return `📊 *CHESS COACH AI — PROFESSIONAL TAHLIL*\n` +
          `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -84,7 +80,7 @@ function analyzeChessGame(gameData) {
          `📖 *Debyut:* ${opening} ${eco}\n` +
          `⏱ *Davomiyligi:* ${totalRounds} ta yurish\n` +
          `━━━━━━━━━━━━━━━━━━━━\n\n` +
-         `🧠 *AI Murabbiy Tahlili:*\n\n` +
+         `🤖 *AI Murabbiy Xulosalari:*\n\n` +
          advice.map(a => `• ${a}`).join('\n\n') +
          (gameData.id ? `\n\n🔗 [Lichess-da partiyani ko'rish](https://lichess.org/${gameData.id})` : '');
 }
@@ -120,7 +116,7 @@ bot.start(async (ctx) => {
   });
 });
 
-// --- SUPER ADMIN PANEL --- //
+// --- ADMIN BUYRUQLARI --- //
 bot.command('admin', (ctx) => {
   if (!isAdmin(ctx)) return ctx.reply("❌ Kechirasiz, siz Super Admin emassiz!");
   openAdminPanel(ctx);
@@ -222,13 +218,12 @@ bot.action('help_info', (ctx) => {
   ctx.reply(botSettings.helpText, { parse_mode: 'Markdown' });
 });
 
-// --- LICHESS HAVOLA VA PGN TAHLIL MONITORINGI --- //
+// --- XABARLARNI MONITORING QILISH VA LICHESS TAHLIL --- //
 bot.on('text', async (ctx) => {
   if (ctx.from?.id) botUsers.add(ctx.from.id);
   const text = ctx.message.text.trim();
   const state = userState[ctx.from?.id];
 
-  // 1. Admin buyruq holatlari
   if (state === 'waiting_for_broadcast' && isAdmin(ctx)) {
     delete userState[ctx.from.id];
     let count = 0;
@@ -260,11 +255,11 @@ bot.on('text', async (ctx) => {
     return ctx.reply(`✅ @${newAdmin} admin qilindi!`, Markup.inlineKeyboard([[Markup.button.callback("👑 Admin Panel", "admin_panel")]]));
   }
 
-  // 2. Lichess Havolasini Tahlil Qilish
+  // Lichess URL tahlili
   const lichessMatch = text.match(/lichess\.org\/([a-zA-Z0-9]{8,12})/);
   if (lichessMatch) {
     const gameId = lichessMatch[1].substring(0, 8);
-    await ctx.reply("🧠 *Chess Coach AI o'yin ma'lumotlarini yuklab tahlil qilmoqda...*", { parse_mode: 'Markdown' });
+    await ctx.reply("🧠 *Chess Coach AI o'yinni o'rganib tahlil qilmoqda...*", { parse_mode: 'Markdown' });
 
     try {
       const res = await axios.get(`https://lichess.org/game/export/${gameId}`, {
@@ -274,13 +269,13 @@ bot.on('text', async (ctx) => {
       const report = analyzeChessGame({ ...res.data, id: gameId });
       return ctx.reply(report, { parse_mode: 'Markdown', disable_web_page_preview: true });
     } catch (err) {
-      return ctx.reply("❌ O'yin ma'lumotlarini tahlil qilib bo'lmadi. Havola ochiq va to'g'ri ekanligini tekshiring.");
+      return ctx.reply("❌ O'yin ma'lumotlarini tahlil qilib bo'lmadi. Havola to'g'riligini tekshiring.");
     }
   }
 
-  // 3. PGN Matnini Tahlil Qilish (Masalan: 1. e4 e5 2. Nf3 ...)
+  // PGN matn tahlili
   if (text.startsWith('1.') || text.includes('[Event ') || text.includes('1. e4') || text.includes('1. d4')) {
-    await ctx.reply("🧠 *Chess Coach AI PGN partiyani o'rganmoqda...*", { parse_mode: 'Markdown' });
+    await ctx.reply("🧠 *Chess Coach AI PGN partiyani tahlil qilmoqda...*", { parse_mode: 'Markdown' });
     try {
       const tempChess = new Chess();
       const loaded = tempChess.load_pgn(text);
@@ -290,7 +285,7 @@ bot.on('text', async (ctx) => {
           moves: moves,
           white: 'Oqlar',
           black: 'Qoralar',
-          result: tempChess.in_checkmate() ? (tempChess.turn() === 'b' ? '1-0' : '0-1') : (tempChess.in_draw() ? '1/2-1/2' : '*')
+          result: tempChess.in_checkmate() ? (tempChess.turn() === 'b' ? '1-0' : '0-1') : '*'
         });
         return ctx.reply(report, { parse_mode: 'Markdown' });
       }
@@ -298,21 +293,22 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// WEBHOOK VA EXPRESS
-const SECRET_PATH = `/telegraf-webhook-${BOT_TOKEN.slice(-10)}`;
-app.use(bot.webhookCallback(SECRET_PATH));
-
+// Express veb sahifa
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Serverni tinglash va Botni ishga tushirish
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Web Server ${PORT}-portda faol!`);
   try {
     await bot.telegram.deleteWebhook({ drop_pending_updates: true });
-    await bot.telegram.setWebhook(`${SERVER_URL}${SECRET_PATH}`);
-    console.log(`✅ Toza Webhook ulandi: ${SERVER_URL}${SECRET_PATH}`);
-  } catch (e) {
-    console.error("Webhook xatolik:", e.message);
+    bot.launch();
+    console.log(`🤖 Telegram Bot muvaffaqiyatli ishga tushdi!`);
+  } catch (err) {
+    console.error("Bot ishga tushishida xatolik:", err.message);
   }
 });
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));

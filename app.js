@@ -54,13 +54,13 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState('all');
 
-  // Auth Form State
+  // Auth State
   const [authMode, setAuthMode] = useState('login');
   const [authData, setAuthData] = useState({ username: '', password: '', name: '', role: 'coach', centerName: '' });
   const [authError, setAuthError] = useState('');
 
   // Modallar
-  const [modalType, setModalType] = useState(null); // 'director' | 'group' | 'student'
+  const [modalType, setModalType] = useState(null);
   const [modalData, setModalData] = useState({});
 
   // Jonli Dars
@@ -98,7 +98,7 @@ function App() {
     const cleanUser = authData.username.trim();
 
     if (/\s/.test(cleanUser)) {
-      setAuthError("Username'da bo'sh joy (probel) bo'lishi mumkin emas!");
+      setAuthError("Username'da bo'sh joy bo'lishi mumkin emas!");
       return;
     }
     if (!/^[a-zA-Z0-9_]{6,}$/.test(cleanUser)) {
@@ -149,7 +149,6 @@ function App() {
     localStorage.setItem('chess_coach_current_user', JSON.stringify(newUser));
   };
 
-  // SUPER ADMIN TOMONIDAN DIREKTOR QO'SHISH (Super admin akkauntidan chiqib ketmaslik uchun alohida funksiya)
   const handleSuperAddDirector = (e) => {
     e.preventDefault();
     const cleanUser = modalData.username?.trim();
@@ -278,7 +277,6 @@ function App() {
     setChatInput('');
   };
 
-  // --- Auth oynasi ---
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
@@ -406,10 +404,8 @@ function App() {
     );
   }
 
-  // --- Asosiy Panel ---
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
-      {/* Mobil Header: 3 ta chiziqcha CHAP TOMONDA */}
       <div className="md:hidden flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800 sticky top-0 z-40">
         <div className="flex items-center space-x-3">
           <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 bg-slate-800 rounded-xl text-slate-200 text-lg">
@@ -422,7 +418,6 @@ function App() {
         </div>
       </div>
 
-      {/* Chap Menyu */}
       <aside className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col justify-between transform transition-transform duration-200 ${menuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div>
           <div className="p-6 border-b border-slate-800 hidden md:flex items-center space-x-3">
@@ -498,9 +493,7 @@ function App() {
         </div>
       </aside>
 
-      {/* Asosiy qism */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto max-w-7xl">
-        {/* SUPER ADMIN BO'LIMI */}
         {activeTab === 'super_admin' && isSuper && (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-gradient-to-r from-indigo-900/50 to-slate-900 border border-indigo-500/30 p-6 rounded-3xl">
@@ -570,7 +563,6 @@ function App() {
           </div>
         )}
 
-        {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -618,7 +610,6 @@ function App() {
           </div>
         )}
 
-        {/* GURUHLAR */}
         {activeTab === 'groups' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -682,7 +673,6 @@ function App() {
           </div>
         )}
 
-        {/* O'QUVCHILAR */}
         {activeTab === 'students' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -745,7 +735,6 @@ function App() {
           </div>
         )}
 
-        {/* KASSA & MOLIYA */}
         {activeTab === 'finance' && (
           <div className="space-y-6">
             <div>
@@ -781,7 +770,6 @@ function App() {
           </div>
         )}
 
-        {/* JONLI DARS TAXTASI */}
         {activeTab === 'live' && (
           <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl">
@@ -850,7 +838,6 @@ function App() {
         )}
       </main>
 
-      {/* SUPER ADMIN: DIREKTOR QO'SHISH MODALI */}
       {modalType === 'director' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
@@ -897,7 +884,6 @@ function App() {
         </div>
       )}
 
-      {/* GURUH QO'SHISH MODALI */}
       {modalType === 'group' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
@@ -941,7 +927,6 @@ function App() {
         </div>
       )}
 
-      {/* O'QUVCHI QO'SHISH MODALI */}
       {modalType === 'student' && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-md">
